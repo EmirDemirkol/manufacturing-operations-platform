@@ -129,3 +129,82 @@ git commit -m "docs: resolve initial database design decisions"
 git push
 
 After this, the next step is drawing the first ForgeOps ER diagram from these approved entities and relationships.
+
+---
+
+## ADR-009: Awaiting Review Production-Run Status
+
+**Decision:** Production runs will support an `Awaiting Review` status.
+
+The complete status list is:
+
+- Not Started
+- Active
+- Paused
+- Awaiting Review
+- Completed
+- Cancelled
+
+When the operator finishes recording production, the run moves from Active to Awaiting Review.
+
+The supervisor can then:
+
+- Complete the run if all requirements are satisfied.
+- Return it to Active if further work or correction is required.
+
+---
+
+## ADR-010: Completed Inspections Are Immutable
+
+**Decision:** A completed quality inspection will not be edited through the normal workflow.
+
+If a run fails inspection and is later corrected:
+
+1. The failed inspection remains in the history.
+2. The production run returns to Active.
+3. A quality specialist creates a new inspection.
+4. The run can only be completed after a later inspection passes.
+
+This provides better traceability than overwriting the failed result.
+
+---
+
+## ADR-011: Remaining Quantity and Overproduction
+
+**Decision:** Remaining quantity will never display as a negative number.
+
+```text
+Remaining quantity = maximum of 0 and planned quantity - good quantity
+
+Overproduction will be calculated separately:
+
+Overproduction quantity = maximum of 0 and good quantity - planned quantity
+
+Completion percentage may exceed 100% when good production exceeds the planned quantity.
+
+ADR-012: Work-Order Status Transitions
+
+Decision: Work orders will follow these normal status transitions:
+
+Planned → Released → In Progress → Completed
+
+A work order may also move to Cancelled before completion when cancellation is permitted.
+
+Rules:
+
+Planned means the work order has been created.
+Released means it has been approved for production assignment.
+In Progress means at least one production run has started.
+Completed means all associated production runs are completed.
+Cancelled work orders cannot receive new production runs.
+Completed work orders cannot be cancelled through the normal workflow.
+Phase 1 Consistency Review
+
+The initial design review resolved the following issues:
+
+Awaiting Review is now an official production-run status.
+Failed quality inspections remain in the historical record.
+Corrected runs require a new inspection rather than editing an old result.
+Remaining quantity cannot become negative.
+Overproduction is measured separately.
+Work-order status transitions are now defined.
