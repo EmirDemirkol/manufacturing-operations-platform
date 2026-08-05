@@ -3,19 +3,224 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ForgeOps</title>
+    <title>{{ dashboard_title }} | ForgeOps</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #071019;
+            color: #eef5f8;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 32px;
+            border-bottom: 1px solid #263b49;
+            background: #0d1922;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-mark {
+            display: grid;
+            place-items: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: #38bdf8;
+            color: #071019;
+            font-weight: 800;
+        }
+
+        .brand-name {
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .user-area {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .username {
+            color: #a9bac5;
+            font-size: 14px;
+        }
+
+        .logout-button {
+            padding: 9px 14px;
+            border: 1px solid #405563;
+            border-radius: 8px;
+            background: transparent;
+            color: #eef5f8;
+            cursor: pointer;
+        }
+
+        .logout-button:hover {
+            border-color: #38bdf8;
+            color: #38bdf8;
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 46px 28px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 34px;
+        }
+
+        .intro {
+            margin: 0 0 34px;
+            color: #8fa3b0;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 18px;
+        }
+
+        .metric-card {
+            padding: 24px;
+            border: 1px solid #2a4150;
+            border-radius: 14px;
+            background: #101e28;
+        }
+
+        .metric-label {
+            margin: 0 0 14px;
+            color: #92a7b4;
+            font-size: 14px;
+        }
+
+        .metric-value {
+            margin: 0;
+            font-size: 34px;
+            font-weight: 800;
+        }
+
+        .status-panel {
+            margin-top: 24px;
+            padding: 26px;
+            border: 1px solid #2a4150;
+            border-radius: 14px;
+            background: #101e28;
+        }
+
+        .status-panel h2 {
+            margin-top: 0;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            color: #b9c9d2;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #22c55e;
+        }
+
+        @media (max-width: 850px) {
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 520px) {
+            header {
+                padding: 16px;
+            }
+
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+
+            .username {
+                display: none;
+            }
+        }
+    </style>
 </head>
+
 <body>
+    <header>
+        <div class="brand">
+            <div class="brand-mark">F</div>
+            <div class="brand-name">ForgeOps</div>
+        </div>
+
+        <div class="user-area">
+            <span class="username">
+                Signed in as {{ request.user.username }}
+            </span>
+
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button class="logout-button" type="submit">
+                    Log out
+                </button>
+            </form>
+        </div>
+    </header>
+
     <main>
-        <h1>ForgeOps</h1>
-        <p>Manufacturing Operations Intelligence Platform</p>
+        <h1>{{ dashboard_title }}</h1>
 
-        <h2>Django project setup complete</h2>
-
-        <p>
-            ForgeOps is an educational portfolio project using entirely
-            synthetic manufacturing data.
+        <p class="intro">
+            Signed in with the {{ role_name }} role.
         </p>
+
+        <section class="metrics">
+            <article class="metric-card">
+                <p class="metric-label">Active production runs</p>
+                <p class="metric-value">0</p>
+            </article>
+
+            <article class="metric-card">
+                <p class="metric-label">Good units recorded</p>
+                <p class="metric-value">0</p>
+            </article>
+
+            <article class="metric-card">
+                <p class="metric-label">Open downtime events</p>
+                <p class="metric-value">0</p>
+            </article>
+
+            <article class="metric-card">
+                <p class="metric-label">Failed inspections</p>
+                <p class="metric-value">0</p>
+            </article>
+        </section>
+
+        <section class="status-panel">
+            <h2>System status</h2>
+
+            <div class="status">
+                <span class="status-dot"></span>
+                PostgreSQL connected, authentication active, and role access confirmed
+            </div>
+        </section>
     </main>
 </body>
 </html>
