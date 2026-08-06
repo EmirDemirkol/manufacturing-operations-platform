@@ -652,3 +652,110 @@ Site
 - The hierarchy can be managed through Django administration.
 - Automated tests verify relationships, constraints, validation and deletion protection.
 - All manufacturing examples use synthetic data.
+
+---
+
+---
+
+# 9. Operational Reference Models
+
+ForgeOps implements operational reference data used by future work orders, production runs and downtime events.
+
+## Product
+
+A Product represents a synthetic item manufactured within ForgeOps.
+
+### Key fields
+
+- `code`
+- `name`
+- `description`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### Example
+
+```text
+PRD-1001 - Synthetic Medical Device Assembly
+```
+
+### Rules
+
+- Product codes are globally unique.
+- Product codes use uppercase letters, numbers, hyphens and underscores only.
+- Product names are required.
+- Products may be marked inactive instead of being deleted.
+- All Product examples use synthetic data.
+
+## Shift
+
+A Shift represents a scheduled manufacturing working period.
+
+### Key fields
+
+- `name`
+- `start_time`
+- `end_time`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### Examples
+
+```text
+Day Shift: 07:00 to 15:00
+Evening Shift: 15:00 to 23:00
+Night Shift: 23:00 to 07:00
+```
+
+### Rules
+
+- Shift names are globally unique.
+- Start time and end time are required.
+- Start time and end time cannot be identical.
+- An end time earlier than the start time represents an overnight shift.
+- Overnight shifts are valid.
+- Shifts may be marked inactive instead of being deleted.
+
+## DowntimeReason
+
+A DowntimeReason represents a standard reason for a manufacturing stoppage.
+
+### Key fields
+
+- `code`
+- `name`
+- `description`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### Examples
+
+```text
+EQUIPMENT - Equipment fault
+MATERIAL - Material shortage
+QUALITY - Quality inspection
+MAINTENANCE - Planned maintenance
+CHANGEOVER - Production changeover
+```
+
+### Rules
+
+- Downtime reason codes are globally unique.
+- Downtime reason codes use uppercase letters, numbers, hyphens and underscores only.
+- Downtime reason names are required.
+- Downtime reasons may be marked inactive instead of being deleted.
+- All DowntimeReason examples use synthetic data.
+
+## Implemented Validation and Administration
+
+- Product and DowntimeReason use the shared business-code validator.
+- Product and DowntimeReason codes are protected by database uniqueness constraints.
+- Shift names are protected by a database uniqueness constraint.
+- Identical Shift start and end times are rejected by model validation.
+- Identical Shift start and end times are rejected by a database constraint.
+- Overnight Shift detection is available through the `is_overnight` property.
+- Product, Shift and DowntimeReason are registered in Django administration.
+- Automated tests verify validation, constraints, timestamps, string representations and admin registration.

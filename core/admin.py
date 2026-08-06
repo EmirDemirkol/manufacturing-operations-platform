@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import ProductionArea, ProductionLine, Site
+from .models import (
+    DowntimeReason,
+    Product,
+    ProductionArea,
+    ProductionLine,
+    Shift,
+    Site,
+)
 
 
 @admin.register(Site)
@@ -62,3 +69,51 @@ class ProductionLineAdmin(admin.ModelAdmin):
         "production_area__code",
         "code",
     )
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "name",
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("code", "name", "description")
+    ordering = ("code",)
+
+
+@admin.register(Shift)
+class ShiftAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "start_time",
+        "end_time",
+        "overnight",
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("name",)
+    ordering = ("start_time", "name")
+
+    @admin.display(boolean=True, description="Overnight")
+    def overnight(self, obj):
+        return obj.is_overnight
+
+
+@admin.register(DowntimeReason)
+class DowntimeReasonAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "name",
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("code", "name", "description")
+    ordering = ("code",)
