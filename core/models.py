@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.core.validators import RegexValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
 
 
@@ -122,7 +122,9 @@ class Shift(ActiveTimestampedModel):
         ordering = ["start_time", "name"]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(start_time=models.F("end_time")),
+                condition=~models.Q(
+                    start_time=models.F("end_time")
+                ),
                 name="shift_start_end_different",
             ),
         ]
@@ -169,3 +171,143 @@ class DowntimeReason(ActiveTimestampedModel):
 
     def __str__(self):
         return f"{self.code} - {self.name}"
+
+
+class WorkOrder(ActiveTimestampedModel):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        RELEASED = "RELEASED", "Released"
+        IN_PROGRESS = "IN_PROGRESS", "In progress"
+        COMPLETED = "COMPLETED", "Completed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    order_number = models.CharField(
+        max_length=30,
+        unique=True,
+        validators=[code_validator],
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name="work_orders",
+    )
+    planned_quantity = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    due_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "order_number"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(planned_quantity__gt=0),
+                name="work_order_planned_quantity_positive",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.order_number} - "
+            f"{self.product.code} - "
+            f"{self.product.name}"
+        )
+
+
+class ProductionRun(ActiveTimestampedModel):
+    class Status(models.TextChoices):
+        PLANNED = "PLANNED", "Planned"
+        ACTIVE = "ACTIVE", "Active"
+        PAUSED = "PAUSED", "Paused"
+        COMPLETED = "COMPLETED", "Completed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    work_order = models.ForeignKey(
+        WorkOrder,
+        on_delete=models.PROTECT,
+        related_name="production_runs",
+    )
+    production_line = models.ForeignKey(
+        ProductionLine,
+        on_delete=models.PROTECT,
+        related_name="production_runs",
+    )
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.PROTECT,
+        related_name="production_runs",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PLANNED,
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    ended_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    good_quantity = models.PositiveIntegerField(default=0)
+    rejected_quantity = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(good_quantity__gte=0),
+                name="production_run_good_quantity_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rejected_quantity__gte=0),
+                name="production_run_rejected_quantity_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(started_at__isnull=True)
+                    | models.Q(ended_at__isnull=True)
+                    | models.Q(
+                        ended_at__gte=models.F("started_at")
+                    )
+                ),
+                name="production_run_end_not_before_start",
+            ),
+            models.UniqueConstraint(
+                fields=["work_order"],
+                condition=models.Q(status="ACTIVE"),
+                name="unique_active_run_per_work_order",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.started_at is not None
+            and self.ended_at is not None
+            and self.ended_at < self.started_at
+        ):
+            raise ValidationError(
+                {
+                    "ended_at": (
+                        "End time cannot be earlier than start time."
+                    )
+                }
+            )
+
+    def __str__(self):
+        return (
+            f"{self.work_order.order_number} - "
+            f"{self.production_line}"
+        )
