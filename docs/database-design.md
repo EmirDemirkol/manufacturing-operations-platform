@@ -8,6 +8,8 @@ The database uses PostgreSQL.
 
 ForgeOps uses Django's built-in User and Group models for authentication and role management.
 
+All manufacturing examples and demonstration records use synthetic data.
+
 ---
 
 # 1. Core Entities
@@ -66,7 +68,7 @@ A Site represents a fictional manufacturing plant or facility.
 
 For the MVP, ForgeOps uses one fictional Site, but the structure supports additional Sites later.
 
-Example:
+### Example
 
 ```text
 DUB01 - ForgeOps Dublin Plant
@@ -100,7 +102,7 @@ A Production Area represents a functional manufacturing area within a Site.
 - A Production Area cannot be deleted while dependent Production Lines exist.
 - A Production Area may be marked inactive instead of being deleted.
 
-Example:
+### Example
 
 ```text
 DUB01 / ASSEMBLY - Final Assembly
@@ -131,10 +133,10 @@ A Production Line represents an individual manufacturing line within a Productio
 - The same Production Line code may be reused in another Production Area.
 - Production Line code may contain uppercase letters, numbers, hyphens and underscores only.
 - Production Line name is required.
-- Inactive Production Lines cannot be selected for new Production Runs.
+- A Production Line cannot be deleted while dependent Production Runs exist.
 - A Production Line may be marked inactive instead of being deleted.
 
-Example:
+### Example
 
 ```text
 DUB01 / ASSEMBLY / LINE-A01 - Assembly Line A
@@ -144,7 +146,7 @@ DUB01 / ASSEMBLY / LINE-A01 - Assembly Line A
 
 ## Product
 
-A Product represents a fictional product manufactured at a Site.
+A Product represents a synthetic item manufactured within ForgeOps.
 
 ### Attributes
 
@@ -158,15 +160,23 @@ A Product represents a fictional product manufactured at a Site.
 
 ### Rules
 
-- Product code must be unique.
+- Product code must be globally unique.
+- Product code may contain uppercase letters, numbers, hyphens and underscores only.
 - Product name is required.
-- Inactive Products cannot be selected for new Work Orders.
+- A Product cannot be deleted while dependent Work Orders exist.
+- A Product may be marked inactive instead of being deleted.
+
+### Example
+
+```text
+PRD-1001 - Synthetic Medical Device Assembly
+```
 
 ---
 
 ## Shift
 
-A Shift represents a scheduled working period.
+A Shift represents a scheduled manufacturing working period.
 
 ### Attributes
 
@@ -180,21 +190,27 @@ A Shift represents a scheduled working period.
 
 ### Rules
 
-- Shift name must be unique.
+- Shift name must be globally unique.
 - Start time and end time are required.
-- Inactive Shifts cannot be selected for new Production Runs.
+- Start time and end time cannot be identical.
+- An end time earlier than the start time represents an overnight Shift.
+- Overnight Shifts are valid.
+- A Shift cannot be deleted while dependent Production Runs exist.
+- A Shift may be marked inactive instead of being deleted.
 
-Example Shifts:
+### Example Shifts
 
-- Day Shift
-- Evening Shift
-- Night Shift
+```text
+Day Shift: 07:00 to 15:00
+Evening Shift: 15:00 to 23:00
+Night Shift: 23:00 to 07:00
+```
 
 ---
 
 ## WorkOrder
 
-A Work Order represents planned production for a Product.
+A Work Order represents a planned quantity of a Product that must be manufactured.
 
 ### Attributes
 
@@ -202,17 +218,16 @@ A Work Order represents planned production for a Product.
 - Work-order number
 - Product
 - Planned quantity
-- Planned production date
 - Status
-- Created by
+- Due date
+- Notes
+- Active status
 - Created date and time
 - Updated date and time
-- Cancelled by
-- Cancelled date and time
 
 ### Status Values
 
-- Planned
+- Draft
 - Released
 - In Progress
 - Completed
@@ -220,17 +235,30 @@ A Work Order represents planned production for a Product.
 
 ### Rules
 
-- Work-order number must be unique.
+- Work-order number must be globally unique.
+- Work-order numbers may contain uppercase letters, numbers, hyphens and underscores only.
 - Planned quantity must be greater than zero.
-- Each Work Order relates to one Product.
-- Cancelled Work Orders cannot be used for new Production Runs.
-- The selected Product must be active.
+- Each Work Order relates to exactly one Product.
+- One Work Order may contain multiple Production Runs.
+- A Work Order may have only one active Production Run at a time.
+- A Work Order cannot be deleted while dependent Production Runs exist.
+- Product records referenced by Work Orders are protected from deletion.
+- A Work Order may be marked inactive instead of being deleted.
+
+### Example
+
+```text
+WO-2026-0001
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Planned Quantity: 1000
+Status: Released
+```
 
 ---
 
 ## ProductionRun
 
-A Production Run represents the execution of a Work Order on a Production Line during a Shift.
+A Production Run represents an individual execution of manufacturing work for a Work Order.
 
 ### Attributes
 
@@ -238,17 +266,19 @@ A Production Run represents the execution of a Work Order on a Production Line d
 - Work Order
 - Production Line
 - Shift
-- Assigned operator
 - Status
-- Actual start date and time
-- Actual completion date and time
-- Created by
+- Started date and time
+- Ended date and time
+- Good quantity
+- Rejected quantity
+- Notes
+- Active status
 - Created date and time
 - Updated date and time
 
 ### Status Values
 
-- Not Started
+- Planned
 - Active
 - Paused
 - Completed
@@ -256,13 +286,27 @@ A Production Run represents the execution of a Work Order on a Production Line d
 
 ### Rules
 
-- Each Production Run belongs to one Work Order.
-- Each Production Run occurs on one Production Line.
-- Each Production Run occurs during one Shift.
-- Each Production Run is assigned to one Operator.
-- A completed Production Run cannot accept new Production Entries.
-- A cancelled Production Run cannot be started.
-- The selected Production Line and Shift must be active.
+- Each Production Run belongs to exactly one Work Order.
+- Each Production Run takes place on exactly one Production Line.
+- Each Production Run uses exactly one Shift.
+- A Work Order may contain multiple Production Runs.
+- A Work Order may have only one Production Run with ACTIVE status at a time.
+- Good quantity cannot be negative.
+- Rejected quantity cannot be negative.
+- An end timestamp cannot occur before its start timestamp.
+- Work Orders, Production Lines and Shifts referenced by Production Runs are protected from deletion.
+- A Production Run may be marked inactive instead of being deleted.
+
+### Example
+
+```text
+Work Order: WO-2026-0001
+Production Line: DUB01 / ASSEMBLY / LINE-A01
+Shift: Night Shift
+Status: Planned
+Good Quantity: 0
+Rejected Quantity: 0
+```
 
 ---
 
@@ -302,7 +346,7 @@ Calculated values should normally be derived from Production Entries rather than
 
 ## DowntimeReason
 
-A Downtime Reason represents a standard reason for a production stoppage.
+A Downtime Reason represents a standard reason for a manufacturing stoppage.
 
 ### Attributes
 
@@ -316,18 +360,20 @@ A Downtime Reason represents a standard reason for a production stoppage.
 
 ### Rules
 
-- Reason code must be unique.
+- Reason code must be globally unique.
+- Reason code may contain uppercase letters, numbers, hyphens and underscores only.
 - Reason name is required.
-- Inactive Downtime Reasons cannot be selected for new Downtime Events.
+- A Downtime Reason may be marked inactive instead of being deleted.
 
-Example Reasons:
+### Example Reasons
 
-- Equipment fault
-- Material shortage
-- Quality inspection
-- Planned maintenance
-- Operator unavailable
-- Changeover
+```text
+EQUIPMENT - Equipment fault
+MATERIAL - Material shortage
+QUALITY - Quality inspection
+MAINTENANCE - Planned maintenance
+CHANGEOVER - Production changeover
+```
 
 ---
 
@@ -360,7 +406,8 @@ A Downtime Event represents a period during which production stopped.
 ### Calculated Value
 
 ```text
-Downtime duration = end date and time - start date and time
+Downtime duration =
+downtime end date and time - downtime start date and time
 ```
 
 The duration should be calculated from timestamps rather than manually entered.
@@ -447,15 +494,14 @@ An Audit Event represents an important action performed in ForgeOps.
 
 ## Product Relationships
 
-- One Product has many Work Orders.
+- One Product may have many Work Orders.
 - One Work Order belongs to one Product.
 
 ## Work-Order Relationships
 
-- One Work Order may have one or more Production Runs.
+- One Work Order may have multiple Production Runs.
 - One Production Run belongs to one Work Order.
-
-The MVP will normally use one Production Run per Work Order, but the database should not unnecessarily prevent future split runs.
+- Only one Production Run for a Work Order may have ACTIVE status at a time.
 
 ## Production-Run Relationships
 
@@ -464,7 +510,8 @@ One Production Run belongs to:
 - One Work Order
 - One Production Line
 - One Shift
-- One assigned User
+
+Future operational models may also associate Users with Production Runs.
 
 One Production Run can have many:
 
@@ -519,7 +566,6 @@ Shift
 └── ProductionRun
 
 User
-├── ProductionRun assignment
 ├── ProductionEntry recording
 ├── DowntimeEvent opening and closing
 ├── QualityInspection completion
@@ -533,28 +579,36 @@ User
 - Site codes must be globally unique.
 - Production Area codes must be unique within each Site.
 - Production Line codes must be unique within each Production Area.
-- Product codes must be unique.
-- Work-order numbers must be unique.
-- Downtime-reason codes must be unique.
+- Product codes must be globally unique.
+- Work-order numbers must be globally unique.
+- Downtime Reason codes must be globally unique.
 - Business codes may contain uppercase letters, numbers, hyphens and underscores only.
-- Planned quantities must be greater than zero.
-- Good and rejected quantities cannot be negative.
+- Shift names must be globally unique.
+- Shift start time and end time cannot be identical.
+- An end time earlier than a Shift start time represents an overnight Shift.
+- Planned Work Order quantities must be greater than zero.
+- Production Run good quantities cannot be negative.
+- Production Run rejected quantities cannot be negative.
+- A Production Run end timestamp cannot occur before its start timestamp.
+- Only one Production Run may have ACTIVE status for a Work Order at a time.
+- Parent manufacturing records cannot be deleted while dependent child records exist.
+- Database relationships must prevent references to records that do not exist.
+- Reference and operational records may be marked inactive instead of being deleted.
+- Audit records cannot be changed through standard application workflows.
+- All manufacturing examples and demonstration records must use synthetic data.
+
+Future workflow rules will include:
+
 - Production Entries can only be added to active Production Runs.
-- Downtime end times cannot occur before downtime start times.
-- Completed Production Runs cannot accept new operational records.
 - Open Downtime Events must be closed before Production Run completion.
 - Required Quality Inspections must be completed before Production Run completion.
-- Inactive reference records cannot be selected for new operational records.
-- Parent manufacturing records cannot be deleted while dependent child records exist.
-- Audit records cannot be changed through standard application workflows.
-- Database relationships must prevent references to records that do not exist.
-- All manufacturing examples and demonstration records must use synthetic data.
+- Inactive reference records should not be selectable for new operational records.
 
 ---
 
 # 5. Values Calculated From Stored Records
 
-The following values should be calculated instead of manually entered:
+The following values should be calculated instead of manually entered where the related operational models provide the source data:
 
 - Total good quantity
 - Total rejected quantity
@@ -619,14 +673,18 @@ These entities can be introduced after the core production workflow is working, 
 
 The following decisions must be reviewed before the related operational models are implemented:
 
-- Can one Work Order have multiple Production Runs?
 - Can an Operator have more than one active Production Run?
 - How many Quality Inspections are required before a Production Run can be completed?
 - Should Production Entries be correctable, or should corrections create replacement records?
 - Should Downtime Events automatically pause a Production Run?
 - Should completion percentage use good quantity or total recorded quantity?
 - Should Supervisors be able to record quantities on behalf of Operators?
-- How should overnight Shifts be represented when the end time is earlier than the start time?
+
+The following questions have already been resolved:
+
+- A Work Order may contain multiple Production Runs.
+- Only one Production Run for a Work Order may have ACTIVE status at a time.
+- Overnight Shifts are represented by an end time earlier than the start time.
 
 ---
 
@@ -655,17 +713,15 @@ Site
 
 ---
 
----
-
 # 9. Operational Reference Models
 
-ForgeOps implements operational reference data used by future work orders, production runs and downtime events.
+ForgeOps implements operational reference data used by Work Orders, Production Runs and future Downtime Events.
 
 ## Product
 
 A Product represents a synthetic item manufactured within ForgeOps.
 
-### Key fields
+### Key Fields
 
 - `code`
 - `name`
@@ -692,7 +748,7 @@ PRD-1001 - Synthetic Medical Device Assembly
 
 A Shift represents a scheduled manufacturing working period.
 
-### Key fields
+### Key Fields
 
 - `name`
 - `start_time`
@@ -714,15 +770,15 @@ Night Shift: 23:00 to 07:00
 - Shift names are globally unique.
 - Start time and end time are required.
 - Start time and end time cannot be identical.
-- An end time earlier than the start time represents an overnight shift.
-- Overnight shifts are valid.
+- An end time earlier than the start time represents an overnight Shift.
+- Overnight Shifts are valid.
 - Shifts may be marked inactive instead of being deleted.
 
 ## DowntimeReason
 
 A DowntimeReason represents a standard reason for a manufacturing stoppage.
 
-### Key fields
+### Key Fields
 
 - `code`
 - `name`
@@ -743,10 +799,10 @@ CHANGEOVER - Production changeover
 
 ### Rules
 
-- Downtime reason codes are globally unique.
-- Downtime reason codes use uppercase letters, numbers, hyphens and underscores only.
-- Downtime reason names are required.
-- Downtime reasons may be marked inactive instead of being deleted.
+- Downtime Reason codes are globally unique.
+- Downtime Reason codes use uppercase letters, numbers, hyphens and underscores only.
+- Downtime Reason names are required.
+- Downtime Reasons may be marked inactive instead of being deleted.
 - All DowntimeReason examples use synthetic data.
 
 ## Implemented Validation and Administration
@@ -759,3 +815,208 @@ CHANGEOVER - Production changeover
 - Overnight Shift detection is available through the `is_overnight` property.
 - Product, Shift and DowntimeReason are registered in Django administration.
 - Automated tests verify validation, constraints, timestamps, string representations and admin registration.
+
+---
+
+# 10. Work Orders and Production Runs
+
+ForgeOps implements Work Orders and Production Runs to represent planned manufacturing demand and the execution of that manufacturing work.
+
+The operational relationship is:
+
+```text
+Product
+└── Work Order
+    └── Production Run
+        ├── Production Line
+        └── Shift
+```
+
+## WorkOrder
+
+A WorkOrder represents a planned quantity of a Product that must be manufactured.
+
+### Key Fields
+
+- `order_number`
+- `product`
+- `planned_quantity`
+- `status`
+- `due_date`
+- `notes`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### Status Values
+
+```text
+DRAFT
+RELEASED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+```
+
+### Example
+
+```text
+WO-2026-0001
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Planned Quantity: 1000
+Status: RELEASED
+```
+
+### Rules
+
+- Work Order numbers are globally unique.
+- Work Order numbers use uppercase letters, numbers, hyphens and underscores only.
+- Planned quantity must be greater than zero.
+- Each Work Order relates to exactly one Product.
+- One Work Order may contain multiple Production Runs.
+- Product records referenced by Work Orders are protected from deletion.
+- Work Orders may be marked inactive instead of being deleted.
+- All Work Order examples use synthetic manufacturing data.
+
+## ProductionRun
+
+A ProductionRun represents an individual execution of manufacturing work for a Work Order.
+
+### Key Fields
+
+- `work_order`
+- `production_line`
+- `shift`
+- `status`
+- `started_at`
+- `ended_at`
+- `good_quantity`
+- `rejected_quantity`
+- `notes`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+### Status Values
+
+```text
+PLANNED
+ACTIVE
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+### Example
+
+```text
+Work Order: WO-2026-0001
+Production Line: DUB01 / ASSEMBLY / LINE-A01
+Shift: Night Shift
+Status: PLANNED
+Good Quantity: 0
+Rejected Quantity: 0
+```
+
+### Rules
+
+- Each Production Run belongs to exactly one Work Order.
+- Each Production Run takes place on exactly one Production Line.
+- Each Production Run uses exactly one Shift.
+- A Work Order may contain multiple Production Runs.
+- A Work Order may have only one Production Run with ACTIVE status at a time.
+- Good quantity cannot be negative.
+- Rejected quantity cannot be negative.
+- An end timestamp cannot occur before its start timestamp.
+- Work Orders referenced by Production Runs are protected from deletion.
+- Production Lines referenced by Production Runs are protected from deletion.
+- Shifts referenced by Production Runs are protected from deletion.
+- Production Runs may be marked inactive instead of being deleted.
+- All Production Run examples use synthetic manufacturing data.
+
+## Implemented Database Constraints
+
+The WorkOrder model includes:
+
+- A database uniqueness constraint for `order_number`.
+- A positive-value requirement for `planned_quantity`.
+- A database check ensuring `planned_quantity` is greater than zero.
+- Protected deletion for referenced Product records.
+
+The ProductionRun model includes:
+
+- A database check ensuring `good_quantity` is non-negative.
+- A database check ensuring `rejected_quantity` is non-negative.
+- A database constraint preventing `ended_at` from occurring before `started_at`.
+- A conditional uniqueness constraint allowing only one ACTIVE Production Run per Work Order.
+- Protected deletion for referenced Work Orders.
+- Protected deletion for referenced Production Lines.
+- Protected deletion for referenced Shifts.
+
+## Implemented Validation and Administration
+
+- Work Order numbers reuse the shared business-code validator.
+- Planned Work Order quantities are validated as positive values.
+- Production Run quantity fields default to zero.
+- Production Run start and end timestamps are validated.
+- WorkOrder and ProductionRun are registered in Django administration.
+- WorkOrder relationships can be managed through Django administration.
+- ProductionRun relationships can be managed through Django administration.
+- Django admin uses related-record selection for Products, Production Lines, Shifts and Work Orders.
+- Automated tests verify WorkOrder and ProductionRun relationships.
+- Automated tests verify model validation.
+- Automated tests verify database constraints.
+- Automated tests verify deletion protection.
+- Automated tests verify status defaults.
+- Automated tests verify timestamps.
+- Automated tests verify string representations.
+- Automated tests verify Django administration registration.
+- Automated tests verify that multiple Production Runs may belong to one Work Order.
+- Automated tests verify that different Work Orders may each have an active Production Run.
+- Automated tests verify that one Work Order cannot have multiple ACTIVE Production Runs simultaneously.
+
+---
+
+# 11. Current Implementation Status
+
+The following database models are currently implemented:
+
+```text
+User
+Group
+Site
+ProductionArea
+ProductionLine
+Product
+Shift
+DowntimeReason
+WorkOrder
+ProductionRun
+```
+
+The following operational models remain planned for later implementation:
+
+```text
+ProductionEntry
+DowntimeEvent
+QualityInspection
+AuditEvent
+```
+
+The current implemented operational flow is:
+
+```text
+Site
+└── ProductionArea
+    └── ProductionLine
+        └── ProductionRun
+
+Product
+└── WorkOrder
+    └── ProductionRun
+
+Shift
+└── ProductionRun
+```
+
+This provides the database foundation required for the next phase of ForgeOps operational development.
