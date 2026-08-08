@@ -567,3 +567,98 @@ class DowntimeEvent(models.Model):
             f"{self.downtime_reason.code} - "
             f"{state}"
         )
+
+
+class QualityInspection(models.Model):
+    class Result(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        PASSED = "PASSED", "Passed"
+        FAILED = "FAILED", "Failed"
+
+    production_run = models.ForeignKey(
+        ProductionRun,
+        on_delete=models.PROTECT,
+        related_name="quality_inspections",
+    )
+    result = models.CharField(
+        max_length=20,
+        choices=Result.choices,
+        default=Result.PENDING,
+    )
+    notes = models.TextField(blank=True)
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="completed_quality_inspections",
+        null=True,
+        blank=True,
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        result="PENDING",
+                        completed_by__isnull=True,
+                        completed_at__isnull=True,
+                    )
+                    | models.Q(
+                        result__in=["PASSED", "FAILED"],
+                        completed_by__isnull=False,
+                        completed_at__isnull=False,
+                    )
+                ),
+                name="quality_inspection_completion_state_consistent",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if self.result == self.Result.PENDING:
+            if self.completed_by_id is not None:
+                errors["completed_by"] = (
+                    "Completed by must be empty while "
+                    "the inspection is pending."
+                )
+
+            if self.completed_at is not None:
+                errors["completed_at"] = (
+                    "Completed at must be empty while "
+                    "the inspection is pending."
+                )
+
+        if self.result in (
+            self.Result.PASSED,
+            self.Result.FAILED,
+        ):
+            if self.completed_by_id is None:
+                errors["completed_by"] = (
+                    "Completed by is required when "
+                    "the inspection is completed."
+                )
+
+            if self.completed_at is None:
+                errors["completed_at"] = (
+                    "Completed at is required when "
+                    "the inspection is completed."
+                )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return (
+            f"{self.production_run.work_order.order_number} - "
+            f"{self.get_result_display()}"
+        )
