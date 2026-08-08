@@ -9,6 +9,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from .models import (
+    DowntimeEvent,
     DowntimeReason,
     Product,
     ProductionArea,
@@ -1019,4 +1020,411 @@ class ProductionEntryModelTests(TestCase):
     def test_production_entry_is_registered_in_django_admin(self):
         self.assertTrue(
             admin.site.is_registered(ProductionEntry)
+        )
+
+
+class DowntimeEventModelTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+
+        self.opened_by = user_model.objects.create_user(
+            username="synthetic_operator",
+            password="SyntheticTestPassword123!",
+        )
+
+        self.closed_by = user_model.objects.create_user(
+            username="synthetic_supervisor",
+            password="SyntheticTestPassword123!",
+        )
+
+        self.site = Site.objects.create(
+            code="DUB01",
+            name="ForgeOps Dublin Plant",
+            description="Synthetic manufacturing site.",
+        )
+
+        self.area = ProductionArea.objects.create(
+            site=self.site,
+            code="ASSEMBLY",
+            name="Final Assembly",
+            description="Synthetic final assembly area.",
+        )
+
+        self.line = ProductionLine.objects.create(
+            production_area=self.area,
+            code="LINE-A01",
+            name="Assembly Line A",
+            description="Synthetic production line.",
+        )
+
+        self.product = Product.objects.create(
+            code="PRD-1001",
+            name="Synthetic Medical Device Assembly",
+            description="Synthetic product used for ForgeOps testing.",
+        )
+
+        self.shift = Shift.objects.create(
+            name="Night Shift",
+            start_time=time(23, 0),
+            end_time=time(7, 0),
+        )
+
+        self.downtime_reason = DowntimeReason.objects.create(
+            code="EQUIPMENT",
+            name="Equipment fault",
+            description="Synthetic equipment downtime reason.",
+        )
+
+        self.work_order = WorkOrder.objects.create(
+            order_number="WO-2026-0001",
+            product=self.product,
+            planned_quantity=1000,
+            status="RELEASED",
+            notes="Synthetic ForgeOps work order.",
+        )
+
+        self.production_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+            status="ACTIVE",
+            started_at=timezone.now(),
+        )
+
+    def test_downtime_event_is_created_with_expected_relationships(self):
+        event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+            notes="Synthetic downtime event.",
+        )
+
+        self.assertEqual(
+            event.production_run,
+            self.production_run,
+        )
+
+        self.assertEqual(
+            event.downtime_reason,
+            self.downtime_reason,
+        )
+
+        self.assertEqual(
+            event.opened_by,
+            self.opened_by,
+        )
+
+        self.assertIn(
+            event,
+            self.production_run.downtime_events.all(),
+        )
+
+    def test_open_downtime_event_defaults_are_correct(self):
+        event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        self.assertIsNone(event.ended_at)
+        self.assertIsNone(event.closed_by)
+        self.assertEqual(event.notes, "")
+        self.assertIsNotNone(event.created_at)
+        self.assertIsNotNone(event.updated_at)
+        self.assertIsNone(event.duration)
+
+    def test_downtime_event_is_allowed_for_active_production_run(self):
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        event.full_clean()
+        event.save()
+
+        self.assertEqual(
+            event.production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+
+    def test_downtime_event_is_rejected_for_planned_production_run(self):
+        planned_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+            status="PLANNED",
+        )
+
+        event = DowntimeEvent(
+            production_run=planned_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_downtime_event_is_rejected_for_paused_production_run(self):
+        self.production_run.status = ProductionRun.Status.PAUSED
+        self.production_run.save()
+
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_downtime_event_is_rejected_for_completed_production_run(self):
+        self.production_run.status = ProductionRun.Status.COMPLETED
+        self.production_run.save()
+
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_downtime_event_is_rejected_for_cancelled_production_run(self):
+        self.production_run.status = ProductionRun.Status.CANCELLED
+        self.production_run.save()
+
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_end_time_cannot_be_before_start_time_model_validation(self):
+        started_at = timezone.now()
+
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=started_at - timedelta(minutes=5),
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_end_time_cannot_be_before_start_time_database_constraint(self):
+        started_at = timezone.now()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                DowntimeEvent.objects.create(
+                    production_run=self.production_run,
+                    downtime_reason=self.downtime_reason,
+                    started_at=started_at,
+                    ended_at=started_at - timedelta(minutes=5),
+                    opened_by=self.opened_by,
+                    closed_by=self.closed_by,
+                )
+
+    def test_only_one_open_downtime_event_per_production_run(self):
+        DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                DowntimeEvent.objects.create(
+                    production_run=self.production_run,
+                    downtime_reason=self.downtime_reason,
+                    started_at=timezone.now(),
+                    opened_by=self.opened_by,
+                )
+
+    def test_multiple_closed_downtime_events_are_allowed(self):
+        first_start = timezone.now()
+        second_start = first_start + timedelta(hours=1)
+
+        first_event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=first_start,
+            ended_at=first_start + timedelta(minutes=10),
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        second_event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=second_start,
+            ended_at=second_start + timedelta(minutes=5),
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        self.assertEqual(
+            self.production_run.downtime_events.count(),
+            2,
+        )
+
+        self.assertIn(
+            first_event,
+            self.production_run.downtime_events.all(),
+        )
+
+        self.assertIn(
+            second_event,
+            self.production_run.downtime_events.all(),
+        )
+
+    def test_open_event_cannot_have_closed_by_user(self):
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_closed_event_requires_closed_by_user(self):
+        started_at = timezone.now()
+
+        event = DowntimeEvent(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=10),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_close_state_consistency_database_constraint(self):
+        started_at = timezone.now()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                DowntimeEvent.objects.create(
+                    production_run=self.production_run,
+                    downtime_reason=self.downtime_reason,
+                    started_at=started_at,
+                    ended_at=started_at + timedelta(minutes=10),
+                    opened_by=self.opened_by,
+                )
+
+    def test_closed_downtime_duration_is_derived(self):
+        started_at = timezone.now()
+        ended_at = started_at + timedelta(minutes=17)
+
+        event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=ended_at,
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        self.assertEqual(
+            event.duration,
+            timedelta(minutes=17),
+        )
+
+    def test_production_run_cannot_be_deleted_while_downtime_exists(self):
+        DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.production_run.delete()
+
+    def test_downtime_reason_cannot_be_deleted_while_downtime_exists(self):
+        DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.downtime_reason.delete()
+
+    def test_opened_by_user_cannot_be_deleted_while_downtime_exists(self):
+        DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.opened_by.delete()
+
+    def test_closed_by_user_cannot_be_deleted_while_downtime_exists(self):
+        started_at = timezone.now()
+
+        DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=10),
+            opened_by=self.opened_by,
+            closed_by=self.closed_by,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.closed_by.delete()
+
+    def test_downtime_event_string_representation_is_readable(self):
+        event = DowntimeEvent.objects.create(
+            production_run=self.production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.opened_by,
+        )
+
+        representation = str(event)
+
+        self.assertIn(
+            self.work_order.order_number,
+            representation,
+        )
+
+        self.assertIn(
+            self.downtime_reason.code,
+            representation,
+        )
+
+        self.assertIn(
+            "Open",
+            representation,
+        )
+
+    def test_downtime_event_is_registered_in_django_admin(self):
+        self.assertTrue(
+            admin.site.is_registered(DowntimeEvent)
         )
