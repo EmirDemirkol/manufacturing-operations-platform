@@ -1,6 +1,7 @@
 from datetime import time, timedelta
 
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
@@ -11,6 +12,7 @@ from .models import (
     DowntimeReason,
     Product,
     ProductionArea,
+    ProductionEntry,
     ProductionLine,
     ProductionRun,
     Shift,
@@ -49,6 +51,7 @@ class ManufacturingHierarchyModelTests(TestCase):
             self.area,
             self.site.production_areas.all(),
         )
+
         self.assertIn(
             self.line,
             self.area.production_lines.all(),
@@ -283,10 +286,12 @@ class OperationalReferenceModelTests(TestCase):
             str(self.product),
             "PRD-1001 - Synthetic Medical Device Assembly",
         )
+
         self.assertEqual(
             str(self.shift),
             "Night Shift: 23:00 to 07:00",
         )
+
         self.assertEqual(
             str(self.downtime_reason),
             "EQUIPMENT - Equipment fault",
@@ -296,6 +301,7 @@ class OperationalReferenceModelTests(TestCase):
         self.assertTrue(admin.site.is_registered(Product))
         self.assertTrue(admin.site.is_registered(Shift))
         self.assertTrue(admin.site.is_registered(DowntimeReason))
+
 
 class WorkOrderProductionRunModelTests(TestCase):
     def setUp(self):
@@ -410,10 +416,12 @@ class WorkOrderProductionRunModelTests(TestCase):
             production_run.work_order,
             self.work_order,
         )
+
         self.assertEqual(
             production_run.production_line,
             self.line,
         )
+
         self.assertEqual(
             production_run.shift,
             self.shift,
@@ -510,25 +518,15 @@ class WorkOrderProductionRunModelTests(TestCase):
         self.assertEqual(first_run.status, "ACTIVE")
         self.assertEqual(second_run.status, "ACTIVE")
 
-    def test_good_quantity_cannot_be_negative(self):
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                ProductionRun.objects.create(
-                    work_order=self.work_order,
-                    production_line=self.line,
-                    shift=self.shift,
-                    good_quantity=-1,
-                )
+    def test_production_run_totals_default_to_zero_without_entries(self):
+        production_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+        )
 
-    def test_rejected_quantity_cannot_be_negative(self):
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                ProductionRun.objects.create(
-                    work_order=self.work_order,
-                    production_line=self.line,
-                    shift=self.shift,
-                    rejected_quantity=-1,
-                )
+        self.assertEqual(production_run.good_quantity, 0)
+        self.assertEqual(production_run.rejected_quantity, 0)
 
     def test_end_time_cannot_be_before_start_time_model_validation(self):
         started_at = timezone.now()
@@ -568,16 +566,14 @@ class WorkOrderProductionRunModelTests(TestCase):
             status="COMPLETED",
             started_at=started_at,
             ended_at=ended_at,
-            good_quantity=975,
-            rejected_quantity=25,
         )
 
         production_run.full_clean()
         production_run.save()
 
-        self.assertEqual(production_run.good_quantity, 975)
-        self.assertEqual(production_run.rejected_quantity, 25)
         self.assertEqual(production_run.status, "COMPLETED")
+        self.assertEqual(production_run.good_quantity, 0)
+        self.assertEqual(production_run.rejected_quantity, 0)
 
     def test_work_order_cannot_be_deleted_while_run_exists(self):
         ProductionRun.objects.create(
@@ -634,6 +630,7 @@ class WorkOrderProductionRunModelTests(TestCase):
         self.assertTrue(
             admin.site.is_registered(WorkOrder)
         )
+
         self.assertTrue(
             admin.site.is_registered(ProductionRun)
         )
@@ -645,6 +642,7 @@ class WorkOrderProductionRunModelTests(TestCase):
             self.work_order.order_number,
             representation,
         )
+
         self.assertIn(
             self.product.code,
             representation,
@@ -663,7 +661,362 @@ class WorkOrderProductionRunModelTests(TestCase):
             self.work_order.order_number,
             representation,
         )
+
         self.assertIn(
             self.line.code,
             representation,
+        )
+
+
+class ProductionEntryModelTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+
+        self.user = user_model.objects.create_user(
+            username="synthetic_operator",
+            password="SyntheticTestPassword123!",
+        )
+
+        self.site = Site.objects.create(
+            code="DUB01",
+            name="ForgeOps Dublin Plant",
+            description="Synthetic manufacturing site.",
+        )
+
+        self.area = ProductionArea.objects.create(
+            site=self.site,
+            code="ASSEMBLY",
+            name="Final Assembly",
+            description="Synthetic final assembly area.",
+        )
+
+        self.line = ProductionLine.objects.create(
+            production_area=self.area,
+            code="LINE-A01",
+            name="Assembly Line A",
+            description="Synthetic production line.",
+        )
+
+        self.product = Product.objects.create(
+            code="PRD-1001",
+            name="Synthetic Medical Device Assembly",
+            description="Synthetic product used for ForgeOps testing.",
+        )
+
+        self.shift = Shift.objects.create(
+            name="Night Shift",
+            start_time=time(23, 0),
+            end_time=time(7, 0),
+        )
+
+        self.work_order = WorkOrder.objects.create(
+            order_number="WO-2026-0001",
+            product=self.product,
+            planned_quantity=1000,
+            status="RELEASED",
+            notes="Synthetic ForgeOps work order.",
+        )
+
+        self.production_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+            status="ACTIVE",
+            started_at=timezone.now(),
+        )
+
+    def test_production_entry_is_created_with_expected_relationships(self):
+        entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+            rejected_quantity=5,
+            notes="Synthetic production quantity entry.",
+        )
+
+        self.assertEqual(
+            entry.production_run,
+            self.production_run,
+        )
+
+        self.assertEqual(
+            entry.recorded_by,
+            self.user,
+        )
+
+        self.assertIn(
+            entry,
+            self.production_run.production_entries.all(),
+        )
+
+    def test_production_entry_recorded_at_is_created_automatically(self):
+        entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=50,
+        )
+
+        self.assertIsNotNone(entry.recorded_at)
+
+    def test_production_entry_defaults_are_correct(self):
+        entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=25,
+        )
+
+        self.assertEqual(entry.good_quantity, 25)
+        self.assertEqual(entry.rejected_quantity, 0)
+        self.assertEqual(entry.notes, "")
+
+    def test_multiple_entries_can_be_recorded_for_same_production_run(self):
+        first_entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        second_entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=90,
+            rejected_quantity=10,
+        )
+
+        self.assertEqual(
+            self.production_run.production_entries.count(),
+            2,
+        )
+
+        self.assertIn(
+            first_entry,
+            self.production_run.production_entries.all(),
+        )
+
+        self.assertIn(
+            second_entry,
+            self.production_run.production_entries.all(),
+        )
+
+    def test_production_run_totals_are_derived_from_entries(self):
+        ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=300,
+            rejected_quantity=10,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=250,
+            rejected_quantity=5,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=400,
+            rejected_quantity=15,
+        )
+
+        self.assertEqual(
+            self.production_run.good_quantity,
+            950,
+        )
+
+        self.assertEqual(
+            self.production_run.rejected_quantity,
+            30,
+        )
+
+    def test_good_only_entry_is_valid(self):
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+            rejected_quantity=0,
+        )
+
+        entry.full_clean()
+        entry.save()
+
+        self.assertEqual(entry.good_quantity, 100)
+        self.assertEqual(entry.rejected_quantity, 0)
+
+    def test_rejected_only_entry_is_valid(self):
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=0,
+            rejected_quantity=5,
+        )
+
+        entry.full_clean()
+        entry.save()
+
+        self.assertEqual(entry.good_quantity, 0)
+        self.assertEqual(entry.rejected_quantity, 5)
+
+    def test_zero_good_and_zero_rejected_fails_model_validation(self):
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=0,
+            rejected_quantity=0,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
+
+    def test_zero_good_and_zero_rejected_fails_database_constraint(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProductionEntry.objects.create(
+                    production_run=self.production_run,
+                    recorded_by=self.user,
+                    good_quantity=0,
+                    rejected_quantity=0,
+                )
+
+    def test_good_quantity_cannot_be_negative(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProductionEntry.objects.create(
+                    production_run=self.production_run,
+                    recorded_by=self.user,
+                    good_quantity=-1,
+                    rejected_quantity=0,
+                )
+
+    def test_rejected_quantity_cannot_be_negative(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProductionEntry.objects.create(
+                    production_run=self.production_run,
+                    recorded_by=self.user,
+                    good_quantity=0,
+                    rejected_quantity=-1,
+                )
+
+    def test_entry_is_allowed_for_active_production_run(self):
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+            rejected_quantity=2,
+        )
+
+        entry.full_clean()
+        entry.save()
+
+        self.assertEqual(
+            entry.production_run.status,
+            "ACTIVE",
+        )
+
+    def test_entry_is_rejected_for_planned_production_run(self):
+        planned_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+            status="PLANNED",
+        )
+
+        entry = ProductionEntry(
+            production_run=planned_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
+
+    def test_entry_is_rejected_for_paused_production_run(self):
+        self.production_run.status = "PAUSED"
+        self.production_run.save()
+
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
+
+    def test_entry_is_rejected_for_completed_production_run(self):
+        self.production_run.status = "COMPLETED"
+        self.production_run.save()
+
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
+
+    def test_entry_is_rejected_for_cancelled_production_run(self):
+        self.production_run.status = "CANCELLED"
+        self.production_run.save()
+
+        entry = ProductionEntry(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ValidationError):
+            entry.full_clean()
+
+    def test_production_run_cannot_be_deleted_while_entry_exists(self):
+        ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.production_run.delete()
+
+    def test_recorded_by_user_cannot_be_deleted_while_entry_exists(self):
+        ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=100,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
+
+    def test_production_entry_string_representation_is_readable(self):
+        entry = ProductionEntry.objects.create(
+            production_run=self.production_run,
+            recorded_by=self.user,
+            good_quantity=95,
+            rejected_quantity=5,
+        )
+
+        representation = str(entry)
+
+        self.assertIn(
+            self.work_order.order_number,
+            representation,
+        )
+
+        self.assertIn(
+            "95",
+            representation,
+        )
+
+        self.assertIn(
+            "5",
+            representation,
+        )
+
+    def test_production_entry_is_registered_in_django_admin(self):
+        self.assertTrue(
+            admin.site.is_registered(ProductionEntry)
         )

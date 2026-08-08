@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This document defines the initial database entities, attributes, relationships and integrity rules for the ForgeOps MVP.
+This document defines the database entities, attributes, relationships and integrity rules for the ForgeOps manufacturing operations platform.
 
-The database uses PostgreSQL.
+ForgeOps currently uses SQLite for local development through the Django ORM.
+
+PostgreSQL is the intended database architecture for a later deployment phase.
 
 ForgeOps uses Django's built-in User and Group models for authentication and role management.
 
@@ -240,7 +242,7 @@ A Work Order represents a planned quantity of a Product that must be manufacture
 - Planned quantity must be greater than zero.
 - Each Work Order relates to exactly one Product.
 - One Work Order may contain multiple Production Runs.
-- A Work Order may have only one active Production Run at a time.
+- A Work Order may have only one ACTIVE Production Run at a time.
 - A Work Order cannot be deleted while dependent Production Runs exist.
 - Product records referenced by Work Orders are protected from deletion.
 - A Work Order may be marked inactive instead of being deleted.
@@ -251,7 +253,7 @@ A Work Order represents a planned quantity of a Product that must be manufacture
 WO-2026-0001
 Product: PRD-1001 - Synthetic Medical Device Assembly
 Planned Quantity: 1000
-Status: Released
+Status: RELEASED
 ```
 
 ---
@@ -269,12 +271,20 @@ A Production Run represents an individual execution of manufacturing work for a 
 - Status
 - Started date and time
 - Ended date and time
-- Good quantity
-- Rejected quantity
 - Notes
 - Active status
 - Created date and time
 - Updated date and time
+
+Production quantities are not stored directly on the ProductionRun.
+
+Instead, good and rejected quantities are derived from related ProductionEntry records.
+
+### Derived Values
+
+- Good quantity
+- Rejected quantity
+- Total recorded quantity
 
 ### Status Values
 
@@ -291,10 +301,11 @@ A Production Run represents an individual execution of manufacturing work for a 
 - Each Production Run uses exactly one Shift.
 - A Work Order may contain multiple Production Runs.
 - A Work Order may have only one Production Run with ACTIVE status at a time.
-- Good quantity cannot be negative.
-- Rejected quantity cannot be negative.
 - An end timestamp cannot occur before its start timestamp.
-- Work Orders, Production Lines and Shifts referenced by Production Runs are protected from deletion.
+- Work Orders referenced by Production Runs are protected from deletion.
+- Production Lines referenced by Production Runs are protected from deletion.
+- Shifts referenced by Production Runs are protected from deletion.
+- A Production Run cannot be deleted while dependent Production Entries exist.
 - A Production Run may be marked inactive instead of being deleted.
 
 ### Example
@@ -303,16 +314,18 @@ A Production Run represents an individual execution of manufacturing work for a 
 Work Order: WO-2026-0001
 Production Line: DUB01 / ASSEMBLY / LINE-A01
 Shift: Night Shift
-Status: Planned
-Good Quantity: 0
-Rejected Quantity: 0
+Status: ACTIVE
+Good Quantity: derived from ProductionEntry records
+Rejected Quantity: derived from ProductionEntry records
 ```
 
 ---
 
 ## ProductionEntry
 
-A Production Entry represents a quantity recorded during an active Production Run.
+A Production Entry represents an individual manufacturing quantity recording made against an active Production Run.
+
+ProductionEntry provides an incremental record of manufacturing output rather than repeatedly overwriting quantity counters on ProductionRun.
 
 ### Attributes
 
@@ -326,21 +339,59 @@ A Production Entry represents a quantity recorded during an active Production Ru
 
 ### Rules
 
-- Each Production Entry belongs to one Production Run.
+- Each Production Entry belongs to exactly one Production Run.
+- Each Production Entry is recorded by exactly one Django User.
+- One Production Run may contain multiple Production Entries.
 - Good quantity cannot be negative.
 - Rejected quantity cannot be negative.
-- At least one quantity must be greater than zero.
-- Quantities must be whole numbers.
-- Production Entries can only be created for active Production Runs.
+- Production quantities must be whole numbers.
+- At least one of good quantity or rejected quantity must be greater than zero.
+- A good-only Production Entry is valid.
+- A rejected-only Production Entry is valid.
+- A Production Entry containing both good and rejected quantities is valid.
+- A Production Entry containing zero good and zero rejected quantity is invalid.
+- Production Entries may only be recorded against Production Runs with ACTIVE status.
+- PLANNED Production Runs cannot accept Production Entries.
+- PAUSED Production Runs cannot accept Production Entries.
+- COMPLETED Production Runs cannot accept Production Entries.
+- CANCELLED Production Runs cannot accept Production Entries.
+- A Production Run referenced by a Production Entry is protected from deletion.
+- A User referenced by a Production Entry is protected from deletion.
+- The recorded timestamp is created automatically.
+
+### Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Good Quantity: 250
+Rejected Quantity: 5
+Recorded By: operator user
+Recorded At: automatically generated
+```
 
 ### Calculated Values
 
-- Entry total = good quantity + rejected quantity
-- Run good total = sum of all good quantities
-- Run rejected total = sum of all rejected quantities
-- Run total = run good total + run rejected total
+```text
+Entry total =
+good quantity + rejected quantity
+```
 
-Calculated values should normally be derived from Production Entries rather than stored separately.
+```text
+Run good total =
+sum of all ProductionEntry good quantities
+```
+
+```text
+Run rejected total =
+sum of all ProductionEntry rejected quantities
+```
+
+```text
+Run total =
+run good total + run rejected total
+```
+
+ProductionRun quantity totals must be derived from ProductionEntry records rather than maintained as duplicate stored values.
 
 ---
 
@@ -377,7 +428,9 @@ CHANGEOVER - Production changeover
 
 ---
 
-## DowntimeEvent
+## Planned DowntimeEvent
+
+This model is part of the planned ForgeOps architecture and has not yet been implemented.
 
 A Downtime Event represents a period during which production stopped.
 
@@ -414,7 +467,9 @@ The duration should be calculated from timestamps rather than manually entered.
 
 ---
 
-## QualityInspection
+## Planned QualityInspection
+
+This model is part of the planned ForgeOps architecture and has not yet been implemented.
 
 A Quality Inspection represents a basic quality check performed against a Production Run.
 
@@ -445,7 +500,9 @@ A Quality Inspection represents a basic quality check performed against a Produc
 
 ---
 
-## AuditEvent
+## Planned AuditEvent
+
+This model is part of the planned ForgeOps architecture and has not yet been implemented.
 
 An Audit Event represents an important action performed in ForgeOps.
 
@@ -511,8 +568,6 @@ One Production Run belongs to:
 - One Production Line
 - One Shift
 
-Future operational models may also associate Users with Production Runs.
-
 One Production Run can have many:
 
 - Production Entries
@@ -521,9 +576,12 @@ One Production Run can have many:
 
 ## Production-Entry Relationships
 
-- One Production Run has many Production Entries.
-- One Production Entry belongs to one Production Run.
+- One Production Run may have many Production Entries.
+- One Production Entry belongs to exactly one Production Run.
 - One User may record many Production Entries.
+- One Production Entry is recorded by exactly one User.
+- Production Entries are available through the ProductionRun `production_entries` relationship.
+- User production entries are available through the User `production_entries` relationship.
 
 ## Downtime Relationships
 
@@ -561,12 +619,13 @@ Site
 Product
 └── WorkOrder
     └── ProductionRun
+        └── ProductionEntry
 
 Shift
 └── ProductionRun
 
 User
-├── ProductionEntry recording
+├── ProductionEntry
 ├── DowntimeEvent opening and closing
 ├── QualityInspection completion
 └── AuditEvent
@@ -587,19 +646,23 @@ User
 - Shift start time and end time cannot be identical.
 - An end time earlier than a Shift start time represents an overnight Shift.
 - Planned Work Order quantities must be greater than zero.
-- Production Run good quantities cannot be negative.
-- Production Run rejected quantities cannot be negative.
 - A Production Run end timestamp cannot occur before its start timestamp.
 - Only one Production Run may have ACTIVE status for a Work Order at a time.
-- Parent manufacturing records cannot be deleted while dependent child records exist.
+- ProductionEntry good quantities cannot be negative.
+- ProductionEntry rejected quantities cannot be negative.
+- A ProductionEntry must contain at least one recorded unit.
+- Production Entries may only be added to ACTIVE Production Runs.
+- ProductionRun quantity totals must be derived from ProductionEntry records.
+- Parent manufacturing records cannot be deleted while protected dependent child records exist.
+- Production Runs referenced by Production Entries cannot be deleted.
+- Users referenced by Production Entries cannot be deleted.
 - Database relationships must prevent references to records that do not exist.
-- Reference and operational records may be marked inactive instead of being deleted.
+- Reference and operational records that support inactive status may be marked inactive instead of being deleted.
 - Audit records cannot be changed through standard application workflows.
 - All manufacturing examples and demonstration records must use synthetic data.
 
 Future workflow rules will include:
 
-- Production Entries can only be added to active Production Runs.
 - Open Downtime Events must be closed before Production Run completion.
 - Required Quality Inspections must be completed before Production Run completion.
 - Inactive reference records should not be selectable for new operational records.
@@ -622,22 +685,40 @@ The following values should be calculated instead of manually entered where the 
 - Completed-run count
 - Failed-inspection count
 
+ProductionRun manufacturing totals are derived directly from related ProductionEntry records.
+
 Example formulas:
+
+```text
+Total good quantity =
+sum of ProductionEntry good quantities
+```
+
+```text
+Total rejected quantity =
+sum of ProductionEntry rejected quantities
+```
 
 ```text
 Total recorded quantity =
 total good quantity + total rejected quantity
 ```
 
-```text
-Remaining quantity =
-planned quantity - total good quantity
-```
+Remaining quantity and completion percentage depend on the final business definition of manufacturing progress.
+
+Possible completion approaches include:
 
 ```text
-Completion percentage =
-total good quantity / planned quantity × 100
+good quantity / planned quantity × 100
 ```
+
+or:
+
+```text
+total recorded quantity / planned quantity × 100
+```
+
+The final calculation will be decided when the related operational workflow is implemented.
 
 ```text
 Rejection rate =
@@ -671,7 +752,7 @@ These entities can be introduced after the core production workflow is working, 
 
 # 7. Open Design Questions
 
-The following decisions must be reviewed before the related operational models are implemented:
+The following decisions must be reviewed before the related operational workflows are implemented:
 
 - Can an Operator have more than one active Production Run?
 - How many Quality Inspections are required before a Production Run can be completed?
@@ -685,6 +766,11 @@ The following questions have already been resolved:
 - A Work Order may contain multiple Production Runs.
 - Only one Production Run for a Work Order may have ACTIVE status at a time.
 - Overnight Shifts are represented by an end time earlier than the start time.
+- Production quantities are recorded as individual ProductionEntry records.
+- ProductionRun good and rejected totals are derived from ProductionEntry records.
+- Production Entries may only be recorded against ACTIVE Production Runs.
+- Production Entries record the User responsible for the entry.
+- Production Entry timestamps are generated automatically.
 
 ---
 
@@ -826,10 +912,11 @@ The operational relationship is:
 
 ```text
 Product
-└── Work Order
-    └── Production Run
-        ├── Production Line
-        └── Shift
+└── WorkOrder
+    └── ProductionRun
+        ├── ProductionLine
+        ├── Shift
+        └── ProductionEntry
 ```
 
 ## WorkOrder
@@ -890,12 +977,17 @@ A ProductionRun represents an individual execution of manufacturing work for a W
 - `status`
 - `started_at`
 - `ended_at`
-- `good_quantity`
-- `rejected_quantity`
 - `notes`
 - `is_active`
 - `created_at`
 - `updated_at`
+
+### Derived Properties
+
+- `good_quantity`
+- `rejected_quantity`
+
+These totals are calculated from related ProductionEntry records.
 
 ### Status Values
 
@@ -913,9 +1005,9 @@ CANCELLED
 Work Order: WO-2026-0001
 Production Line: DUB01 / ASSEMBLY / LINE-A01
 Shift: Night Shift
-Status: PLANNED
-Good Quantity: 0
-Rejected Quantity: 0
+Status: ACTIVE
+Good Quantity: derived from ProductionEntry records
+Rejected Quantity: derived from ProductionEntry records
 ```
 
 ### Rules
@@ -925,12 +1017,11 @@ Rejected Quantity: 0
 - Each Production Run uses exactly one Shift.
 - A Work Order may contain multiple Production Runs.
 - A Work Order may have only one Production Run with ACTIVE status at a time.
-- Good quantity cannot be negative.
-- Rejected quantity cannot be negative.
 - An end timestamp cannot occur before its start timestamp.
 - Work Orders referenced by Production Runs are protected from deletion.
 - Production Lines referenced by Production Runs are protected from deletion.
 - Shifts referenced by Production Runs are protected from deletion.
+- Production Runs referenced by Production Entries are protected from deletion.
 - Production Runs may be marked inactive instead of being deleted.
 - All Production Run examples use synthetic manufacturing data.
 
@@ -945,19 +1036,18 @@ The WorkOrder model includes:
 
 The ProductionRun model includes:
 
-- A database check ensuring `good_quantity` is non-negative.
-- A database check ensuring `rejected_quantity` is non-negative.
 - A database constraint preventing `ended_at` from occurring before `started_at`.
 - A conditional uniqueness constraint allowing only one ACTIVE Production Run per Work Order.
 - Protected deletion for referenced Work Orders.
 - Protected deletion for referenced Production Lines.
 - Protected deletion for referenced Shifts.
 
+Production quantities are not duplicated in ProductionRun database fields.
+
 ## Implemented Validation and Administration
 
 - Work Order numbers reuse the shared business-code validator.
 - Planned Work Order quantities are validated as positive values.
-- Production Run quantity fields default to zero.
 - Production Run start and end timestamps are validated.
 - WorkOrder and ProductionRun are registered in Django administration.
 - WorkOrder relationships can be managed through Django administration.
@@ -972,12 +1062,230 @@ The ProductionRun model includes:
 - Automated tests verify string representations.
 - Automated tests verify Django administration registration.
 - Automated tests verify that multiple Production Runs may belong to one Work Order.
-- Automated tests verify that different Work Orders may each have an active Production Run.
+- Automated tests verify that different Work Orders may each have an ACTIVE Production Run.
 - Automated tests verify that one Work Order cannot have multiple ACTIVE Production Runs simultaneously.
+- Automated tests verify that ProductionRun quantity totals default to zero when no Production Entries exist.
 
 ---
 
-# 11. Current Implementation Status
+# 11. Production Entries
+
+ForgeOps implements ProductionEntry to provide traceable, incremental manufacturing quantity recording.
+
+Before ProductionEntry was introduced, good and rejected quantities were stored directly on ProductionRun.
+
+The implemented design replaces those stored counters with individual ProductionEntry records.
+
+The architecture is:
+
+```text
+ProductionRun
+└── ProductionEntry
+    ├── good_quantity
+    ├── rejected_quantity
+    ├── recorded_by
+    ├── recorded_at
+    └── notes
+```
+
+A Production Run can therefore contain a history such as:
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+
+Entry 1
+Good: 300
+Rejected: 4
+
+Entry 2
+Good: 250
+Rejected: 3
+
+Entry 3
+Good: 425
+Rejected: 18
+```
+
+The resulting ProductionRun totals are:
+
+```text
+Good Quantity: 975
+Rejected Quantity: 25
+Total Recorded Quantity: 1000
+```
+
+The ProductionRun does not store `975` and `25` independently.
+
+Instead, ForgeOps derives those values from the ProductionEntry history.
+
+## ProductionEntry Key Fields
+
+- `production_run`
+- `recorded_by`
+- `good_quantity`
+- `rejected_quantity`
+- `recorded_at`
+- `notes`
+
+## Relationships
+
+- Each ProductionEntry belongs to exactly one ProductionRun.
+- Each ProductionEntry is recorded by exactly one User.
+- One ProductionRun may contain multiple ProductionEntry records.
+- One User may record multiple ProductionEntry records.
+- Related entries can be accessed from a ProductionRun through `production_entries`.
+- Related entries can be accessed from a User through `production_entries`.
+
+## Quantity Validation
+
+- `good_quantity` defaults to zero.
+- `rejected_quantity` defaults to zero.
+- Good quantity cannot be negative.
+- Rejected quantity cannot be negative.
+- At least one quantity must be greater than zero.
+- A good-only entry is valid.
+- A rejected-only entry is valid.
+- An entry containing both quantities is valid.
+- An entry containing zero good and zero rejected quantity is invalid.
+
+These rules are enforced through model validation and database constraints.
+
+## Production Run Status Validation
+
+Production Entries may only be recorded against Production Runs with:
+
+```text
+ACTIVE
+```
+
+Entries are rejected for Production Runs with:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+This prevents historical or inactive production executions from receiving new manufacturing output.
+
+## Production Totals
+
+ProductionRun exposes derived totals calculated from related ProductionEntry records.
+
+```text
+ProductionRun.good_quantity =
+sum of related ProductionEntry.good_quantity values
+```
+
+```text
+ProductionRun.rejected_quantity =
+sum of related ProductionEntry.rejected_quantity values
+```
+
+If a ProductionRun has no ProductionEntry records:
+
+```text
+good_quantity = 0
+rejected_quantity = 0
+```
+
+This provides one source of truth for manufacturing quantities.
+
+## Traceability
+
+Each ProductionEntry records:
+
+- the ProductionRun receiving the quantity
+- the User responsible for recording the quantity
+- the accepted good quantity
+- the rejected quantity
+- the time the quantity was recorded
+- optional contextual notes
+
+The `recorded_at` timestamp is generated automatically.
+
+This creates a chronological record of production output rather than overwriting a single quantity value.
+
+## Deletion Protection
+
+ProductionEntry uses protected relationships.
+
+- A ProductionRun cannot be deleted while ProductionEntry records reference it.
+- A User cannot be deleted while ProductionEntry records reference that User as `recorded_by`.
+
+This protects historical production traceability.
+
+## Django Administration
+
+ProductionEntry is registered in Django administration.
+
+Administrative users can inspect ProductionEntry records together with related operational information.
+
+This includes:
+
+- Production Run
+- Work Order
+- Product
+- Production Line
+- Shift
+- Recorded User
+- Good quantity
+- Rejected quantity
+- Recorded timestamp
+- Notes
+
+## Implemented Migration
+
+The ProductionEntry architecture is introduced through:
+
+```text
+0005_create_production_entries
+```
+
+The migration:
+
+- creates the ProductionEntry model
+- links ProductionEntry to ProductionRun
+- links ProductionEntry to the Django User model
+- adds the automatically generated recorded timestamp
+- removes stored `good_quantity` from ProductionRun
+- removes stored `rejected_quantity` from ProductionRun
+- removes the old ProductionRun quantity constraints
+- adds non-negative quantity constraints to ProductionEntry
+- adds a database constraint requiring at least one recorded unit
+
+## Automated Validation
+
+Automated tests verify:
+
+- ProductionEntry relationships
+- default quantity values
+- automatic timestamp creation
+- good-only Production Entries
+- rejected-only Production Entries
+- combined good and rejected Production Entries
+- rejection of negative good quantities
+- rejection of negative rejected quantities
+- rejection of zero-good and zero-rejected entries
+- multiple Production Entries for one ProductionRun
+- acceptance of entries for ACTIVE Production Runs
+- rejection of entries for PLANNED Production Runs
+- rejection of entries for PAUSED Production Runs
+- rejection of entries for COMPLETED Production Runs
+- rejection of entries for CANCELLED Production Runs
+- ProductionRun totals derived from Production Entries
+- ProductionRun totals defaulting to zero without entries
+- ProductionRun deletion protection
+- User deletion protection
+- ProductionEntry string representations
+- ProductionEntry Django administration registration
+
+All ProductionEntry examples and test records use synthetic manufacturing data.
+
+---
+
+# 12. Current Implementation Status
 
 The following database models are currently implemented:
 
@@ -992,15 +1300,7 @@ Shift
 DowntimeReason
 WorkOrder
 ProductionRun
-```
-
-The following operational models remain planned for later implementation:
-
-```text
 ProductionEntry
-DowntimeEvent
-QualityInspection
-AuditEvent
 ```
 
 The current implemented operational flow is:
@@ -1010,13 +1310,54 @@ Site
 └── ProductionArea
     └── ProductionLine
         └── ProductionRun
+            └── ProductionEntry
 
 Product
 └── WorkOrder
     └── ProductionRun
+        └── ProductionEntry
 
 Shift
 └── ProductionRun
+
+User
+└── ProductionEntry
 ```
 
-This provides the database foundation required for the next phase of ForgeOps operational development.
+The following operational models remain planned for later implementation:
+
+```text
+DowntimeEvent
+QualityInspection
+AuditEvent
+```
+
+The current database foundation therefore supports:
+
+- authenticated ForgeOps users
+- role-based user groups
+- manufacturing Sites
+- Production Areas
+- Production Lines
+- Product reference data
+- manufacturing Shifts
+- Downtime Reason reference data
+- Work Order planning
+- Production Run execution
+- incremental Production Entry recording
+- user-level production traceability
+- derived Production Run quantity totals
+- protected manufacturing relationships
+- database-level integrity constraints
+- Django administration
+- automated model testing
+
+The ProductionEntry implementation establishes the quantity-recording foundation required for subsequent ForgeOps operational workflows such as downtime management, quality inspection and audit history.
+
+---
+
+# 13. Key Correction From Previous Version
+
+The biggest correction from the old version is that `ProductionRun.good_quantity` and `ProductionRun.rejected_quantity` are no longer stored database fields.
+
+They are now derived from `ProductionEntry`, which is exactly what FO-007 was meant to achieve.
