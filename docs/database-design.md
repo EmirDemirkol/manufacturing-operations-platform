@@ -50,6 +50,7 @@ Current examples include:
 - `ProductionEntry.recorded_by`
 - `DowntimeEvent.opened_by`
 - `DowntimeEvent.closed_by`
+- `QualityInspection.completed_by`
 
 ---
 
@@ -321,6 +322,7 @@ CANCELLED
 - Shifts referenced by Production Runs are protected from deletion.
 - A Production Run cannot be deleted while dependent Production Entries exist.
 - A Production Run cannot be deleted while dependent Downtime Events exist.
+- A Production Run cannot be deleted while dependent Quality Inspections exist.
 - A Production Run may be marked inactive instead of being deleted.
 
 ### Example
@@ -612,13 +614,13 @@ All records used for this verification were synthetic.
 
 ---
 
-## Planned QualityInspection
+## QualityInspection
 
-This model is part of the planned ForgeOps architecture and has not yet been implemented.
+A Quality Inspection represents a basic quality check performed against a ProductionRun.
 
-A Quality Inspection represents a basic quality check performed against a Production Run.
+QualityInspection was implemented as part of FO-009.
 
-### Planned Attributes
+### Attributes
 
 - ID
 - Production Run
@@ -629,7 +631,16 @@ A Quality Inspection represents a basic quality check performed against a Produc
 - Created date and time
 - Updated date and time
 
-### Planned Result Values
+### Relationships
+
+```text
+QualityInspection.production_run -> ProductionRun
+QualityInspection.completed_by -> User
+```
+
+Both relationships use protected deletion when referenced records exist.
+
+### Result Values
 
 ```text
 PENDING
@@ -637,15 +648,131 @@ PASSED
 FAILED
 ```
 
-### Planned Rules
+### Rules
 
-- Each Quality Inspection belongs to one Production Run.
-- Quality actions should be role restricted.
-- A completed result should be PASSED or FAILED.
-- Failed results should be visible to authorised Supervisors and Managers.
-- Required Quality Inspections may need to be completed before Production Run completion.
+- Each Quality Inspection belongs to exactly one Production Run.
+- One Production Run may contain multiple Quality Inspections.
+- A new Quality Inspection defaults to `PENDING`.
+- `PENDING` represents an inspection that has not been completed.
+- A PENDING Quality Inspection has no `completed_by` User.
+- A PENDING Quality Inspection has no `completed_at` timestamp.
+- `PASSED` represents a completed inspection that passed.
+- `FAILED` represents a completed inspection that failed.
+- A PASSED Quality Inspection requires a `completed_by` User.
+- A PASSED Quality Inspection requires a `completed_at` timestamp.
+- A FAILED Quality Inspection requires a `completed_by` User.
+- A FAILED Quality Inspection requires a `completed_at` timestamp.
+- Notes are optional.
+- ProductionRun records referenced by Quality Inspections are protected from deletion.
+- Users referenced through `completed_by` are protected from deletion.
+- Created and updated timestamps are generated automatically.
+- FO-009 does not restrict QualityInspection creation to ACTIVE Production Runs.
+- FO-009 does not automatically change ProductionRun status.
+- FO-009 does not determine how many Quality Inspections are required before ProductionRun completion.
+- FO-009 does not block ProductionRun completion based on pending or failed Quality Inspections.
+- Quality-specific application permissions remain a later workflow concern.
 
-The exact QualityInspection implementation must be decided by its future GitHub issue.
+### Pending Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Result: PENDING
+Completed By: blank
+Completed At: blank
+Notes: Synthetic pending quality inspection test for FO-009.
+```
+
+### Passed Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Result: PASSED
+Completed By: admin
+Completed At: 2026-08-08 19:07
+Notes: Synthetic passed quality inspection test for FO-009.
+```
+
+### Failed Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Result: FAILED
+Completed By: admin
+Completed At: 2026-08-08 19:07
+Notes: Synthetic failed quality inspection test for FO-009.
+```
+
+All examples are synthetic.
+
+### Database Constraint
+
+QualityInspection includes:
+
+```text
+quality_inspection_completion_state_consistent
+```
+
+This protects the consistency of inspection state.
+
+Conceptually:
+
+```text
+PENDING
+├── completed_by = null
+└── completed_at = null
+```
+
+and:
+
+```text
+PASSED or FAILED
+├── completed_by = populated
+└── completed_at = populated
+```
+
+This prevents incomplete completion records from being stored.
+
+### Django Administration
+
+QualityInspection is registered in Django administration.
+
+The current administrative list displays:
+
+- Production Run
+- Result
+- Completed by
+- Completed at
+- Created at
+
+The administration configuration also provides:
+
+- result filtering
+- ProductionRun status filtering
+- Site and ProductionLine filtering
+- completion User filtering
+- timestamp filtering
+- search fields
+- ProductionRun autocomplete
+- completion User autocomplete
+- related-object query optimisation
+
+### Manual FO-009 Verification
+
+FO-009 was manually exercised using synthetic records through Django administration.
+
+The manual verification demonstrated that:
+
+1. QualityInspection appears in Django administration.
+2. A PENDING QualityInspection can be created against a ProductionRun.
+3. A PENDING inspection stores no `completed_by` User.
+4. A PENDING inspection stores no `completed_at` timestamp.
+5. A PASSED inspection without completion User and timestamp is rejected.
+6. A valid PASSED inspection can be saved with `completed_by` and `completed_at`.
+7. A valid FAILED inspection can be saved with `completed_by` and `completed_at`.
+8. Multiple QualityInspection records may exist for the same ProductionRun.
+9. Completion User and timestamp traceability are preserved.
+
+All records used for this verification were synthetic.
 
 ---
 
@@ -727,9 +854,6 @@ One Production Run can currently have many:
 
 - Production Entries
 - Downtime Events
-
-A future Production Run may also have:
-
 - Quality Inspections
 
 ## Production-Entry Relationships
@@ -754,11 +878,13 @@ A future Production Run may also have:
 - Opening User relationships are available through `opened_downtime_events`.
 - Closing User relationships are available through `closed_downtime_events`.
 
-## Planned Quality Relationships
+## Quality Relationships
 
 - One Production Run may have many Quality Inspections.
-- One Quality Inspection belongs to one Production Run.
-- One Quality User may complete many Quality Inspections.
+- One Quality Inspection belongs to exactly one Production Run.
+- One User may complete many Quality Inspections.
+- ProductionRun Quality Inspections are available through `quality_inspections`.
+- Completed User relationships are available through `completed_quality_inspections`.
 
 ## Planned Audit Relationships
 
@@ -776,8 +902,9 @@ Site
     └── ProductionLine
         └── ProductionRun
             ├── ProductionEntry
-            └── DowntimeEvent
-                └── DowntimeReason
+            ├── DowntimeEvent
+            │   └── DowntimeReason
+            └── QualityInspection
 
 Product
 └── WorkOrder
@@ -789,10 +916,11 @@ Shift
 User
 ├── ProductionEntry
 ├── DowntimeEvent.opened_by
-└── DowntimeEvent.closed_by
+├── DowntimeEvent.closed_by
+└── QualityInspection.completed_by
 ```
 
-Planned future relationships include QualityInspection and AuditEvent.
+AuditEvent remains a planned future relationship.
 
 ---
 
@@ -841,6 +969,7 @@ Planned future relationships include QualityInspection and AuditEvent.
 - ProductionRun quantities are derived from ProductionEntry records rather than stored as duplicate counters.
 - Production Runs referenced by Production Entries cannot be deleted.
 - Production Runs referenced by Downtime Events cannot be deleted.
+- Production Runs referenced by Quality Inspections cannot be deleted.
 
 ## ProductionEntry
 
@@ -867,6 +996,20 @@ Planned future relationships include QualityInspection and AuditEvent.
 - Opening User references use protected deletion.
 - Closing User references use protected deletion.
 - Duration is derived from timestamps.
+
+## QualityInspection
+
+- Each QualityInspection belongs to exactly one ProductionRun.
+- One ProductionRun may contain multiple QualityInspection records.
+- Inspection result values are limited to `PENDING`, `PASSED` and `FAILED`.
+- New inspections default to `PENDING`.
+- PENDING inspections have no completion User or completion timestamp.
+- PASSED inspections require a completion User and completion timestamp.
+- FAILED inspections require a completion User and completion timestamp.
+- ProductionRun references use protected deletion.
+- Completed User references use protected deletion.
+- Notes are optional.
+- Created and updated timestamps are generated automatically.
 
 ## General Integrity
 
@@ -972,6 +1115,17 @@ sum of closed DowntimeEvent durations
 
 The reporting implementation is not part of FO-008.
 
+## Failed Inspection Count
+
+A future operational metric may calculate:
+
+```text
+failed inspection count =
+count of QualityInspection records where result = FAILED
+```
+
+Quality dashboard metrics are not part of FO-009.
+
 ---
 
 # 6. MVP Database Boundary
@@ -996,6 +1150,8 @@ The following decisions remain unresolved:
 
 - Can an Operator have more than one ACTIVE Production Run?
 - How many Quality Inspections are required before a Production Run can be completed?
+- Should pending Quality Inspections block Production Run completion?
+- Should failed Quality Inspections block Production Run completion?
 - Should Production Entries be correctable, or should corrections create replacement records?
 - Should Downtime Events automatically pause a Production Run?
 - Should closing downtime automatically resume a Production Run?
@@ -1023,6 +1179,14 @@ The following decisions have already been resolved:
 - Downtime duration is derived from start and end timestamps.
 - Downtime opening and closing Users are traceable.
 - FO-008 does not automatically pause or resume Production Runs.
+- Quality Inspections are recorded as individual records against Production Runs.
+- Quality Inspection result values are `PENDING`, `PASSED` and `FAILED`.
+- New Quality Inspections default to `PENDING`.
+- PENDING Quality Inspections contain no completion User or timestamp.
+- PASSED and FAILED Quality Inspections require completion User and timestamp.
+- One Production Run may contain multiple Quality Inspections.
+- Quality Inspection completion Users are traceable.
+- FO-009 does not define ProductionRun completion requirements.
 
 ---
 
@@ -1169,6 +1333,7 @@ Product
     └── ProductionRun
         ├── ProductionEntry
         ├── DowntimeEvent
+        ├── QualityInspection
         ├── ProductionLine
         └── Shift
 ```
@@ -1277,6 +1442,7 @@ Rejected Quantity: derived from ProductionEntry records
 - Shifts referenced by Production Runs are protected from deletion.
 - Production Runs referenced by Production Entries are protected from deletion.
 - Production Runs referenced by Downtime Events are protected from deletion.
+- Production Runs referenced by Quality Inspections are protected from deletion.
 - Production Runs may be marked inactive instead of being deleted.
 - All Production Run examples use synthetic manufacturing data.
 
@@ -1783,7 +1949,235 @@ All FO-008 tests use synthetic manufacturing data.
 
 ---
 
-# 13. Migration History
+# 13. Quality Inspections
+
+FO-009 implements QualityInspection as the transactional model for basic manufacturing quality checks.
+
+The architecture is:
+
+```text
+ProductionRun
+└── QualityInspection
+    ├── result
+    ├── notes
+    ├── completed_by
+    └── completed_at
+```
+
+## QualityInspection Key Fields
+
+- `production_run`
+- `result`
+- `notes`
+- `completed_by`
+- `completed_at`
+- `created_at`
+- `updated_at`
+
+## Result Values
+
+```text
+PENDING
+PASSED
+FAILED
+```
+
+## Relationships
+
+- Each QualityInspection belongs to exactly one ProductionRun.
+- One ProductionRun may contain multiple QualityInspection records.
+- One User may complete multiple QualityInspection records.
+
+Reverse relationships use:
+
+```text
+ProductionRun.quality_inspections
+User.completed_quality_inspections
+```
+
+## Default State
+
+A new QualityInspection defaults to:
+
+```text
+result = PENDING
+completed_by = null
+completed_at = null
+```
+
+PENDING represents an inspection that has not yet been completed.
+
+## Completed States
+
+A completed QualityInspection has a result of either:
+
+```text
+PASSED
+FAILED
+```
+
+and requires:
+
+```text
+completed_by = populated
+completed_at = populated
+```
+
+Both model validation and database integrity protection enforce this state consistency.
+
+## Completion State Constraint
+
+The database constraint is:
+
+```text
+quality_inspection_completion_state_consistent
+```
+
+It allows:
+
+```text
+PENDING
+completed_by = null
+completed_at = null
+```
+
+or:
+
+```text
+PASSED / FAILED
+completed_by = populated
+completed_at = populated
+```
+
+Invalid combinations are rejected.
+
+## Traceability
+
+QualityInspection preserves:
+
+- which ProductionRun was inspected
+- the current inspection result
+- the User responsible for completing the inspection
+- when the inspection was completed
+- optional notes
+- record creation time
+- record update time
+
+## Deletion Protection
+
+The following relationships use protected deletion:
+
+- ProductionRun
+- completed User
+
+A ProductionRun cannot be deleted while QualityInspection records reference it.
+
+A User cannot be deleted while completed QualityInspection records reference that User through `completed_by`.
+
+## Django Administration
+
+QualityInspection is registered in Django administration.
+
+The current administrative list displays:
+
+- Production Run
+- Result
+- Completed by
+- Completed at
+- Created at
+
+Search, filtering, autocomplete and related-object optimisation are configured for practical inspection.
+
+## Manual Synthetic Verification
+
+FO-009 was manually tested through Django administration using synthetic data.
+
+The verified records included:
+
+```text
+Result: PENDING
+Completed by: blank
+Completed at: blank
+```
+
+```text
+Result: PASSED
+Completed by: admin
+Completed at: populated
+```
+
+```text
+Result: FAILED
+Completed by: admin
+Completed at: populated
+```
+
+A deliberately invalid PASSED QualityInspection with no completion User and no completion timestamp was rejected with validation errors.
+
+Multiple QualityInspection records were successfully recorded against the same synthetic ProductionRun.
+
+## Implemented Migration
+
+QualityInspection is introduced through:
+
+```text
+0007_qualityinspection
+```
+
+The migration:
+
+- creates QualityInspection
+- links QualityInspection to ProductionRun
+- links optional `completed_by` to Django User
+- adds the controlled `result` field
+- defaults result to `PENDING`
+- adds optional notes
+- adds optional `completed_at`
+- adds creation and update timestamps
+- adds the completion-state consistency database constraint
+
+The migration depends on:
+
+```text
+0006_downtimeevent
+```
+
+and Django's swappable User model dependency.
+
+## Automated Validation
+
+FO-009 automated tests verify:
+
+- expected QualityInspection relationships
+- default PENDING state
+- optional notes
+- creation timestamps
+- update timestamps
+- multiple QualityInspections for one ProductionRun
+- valid PENDING inspections
+- valid PASSED inspections
+- valid FAILED inspections
+- rejection of invalid result values
+- rejection of PENDING inspections with `completed_by`
+- rejection of PENDING inspections with `completed_at`
+- PASSED inspection completion User requirements
+- PASSED inspection completion timestamp requirements
+- FAILED inspection completion User requirements
+- FAILED inspection completion timestamp requirements
+- database completion-state consistency
+- ProductionRun deletion protection
+- completed User deletion protection
+- completed User reverse relationship
+- readable string representation
+- Django admin registration
+
+All FO-009 tests use synthetic manufacturing data.
+
+FO-009 does not implement ProductionRun completion blocking, quality-specific website workflows, automatic ProductionRun status changes or quality approval workflows.
+
+---
+
+# 14. Migration History
 
 The current ForgeOps core migration sequence is:
 
@@ -1794,18 +2188,19 @@ The current ForgeOps core migration sequence is:
 0004_create_work_orders_production_runs
 0005_create_production_entries
 0006_downtimeevent
+0007_qualityinspection
 ```
 
-All six migrations are currently applied in the local SQLite development database.
+All seven migrations are currently applied in the local SQLite development database.
 
 ---
 
-# 14. Current Test Milestone
+# 15. Current Test Milestone
 
 The current full core test milestone is:
 
 ```text
-Ran 98 tests
+Ran 118 tests
 OK
 ```
 
@@ -1816,13 +2211,14 @@ FO-005: 34 tests
 FO-006: 58 tests
 FO-007: 77 tests
 FO-008: 98 tests
+FO-009: 118 tests
 ```
 
-FO-008 adds DowntimeEvent coverage without replacing or removing the existing FO-007 test baseline.
+FO-009 adds QualityInspection coverage without replacing or removing the existing FO-008 test baseline.
 
 ---
 
-# 15. Current Implementation Status
+# 16. Current Implementation Status
 
 The following database models are currently implemented:
 
@@ -1839,6 +2235,7 @@ WorkOrder
 ProductionRun
 ProductionEntry
 DowntimeEvent
+QualityInspection
 ```
 
 The current implemented operational structure is:
@@ -1849,7 +2246,8 @@ Site
     └── ProductionLine
         └── ProductionRun
             ├── ProductionEntry
-            └── DowntimeEvent
+            ├── DowntimeEvent
+            └── QualityInspection
 
 Product
 └── WorkOrder
@@ -1864,13 +2262,13 @@ DowntimeReason
 User
 ├── ProductionEntry
 ├── DowntimeEvent.opened_by
-└── DowntimeEvent.closed_by
+├── DowntimeEvent.closed_by
+└── QualityInspection.completed_by
 ```
 
-The following operational models remain planned:
+The following operational model remains planned:
 
 ```text
-QualityInspection
 AuditEvent
 ```
 
@@ -1889,6 +2287,10 @@ The current database foundation supports:
 - incremental Production Entry recording
 - derived ProductionRun quantity totals
 - transactional Downtime Event recording
+- Quality Inspection recording
+- PENDING, PASSED and FAILED inspection states
+- quality completion User traceability
+- quality completion timestamp traceability
 - user-level production traceability
 - downtime opening and closing traceability
 - derived downtime duration
@@ -1900,24 +2302,30 @@ The current database foundation supports:
 
 ---
 
-# 16. FO-008 Current State
+# 17. FO-009 Current State
 
 Current issue:
 
 ```text
-FO-008: Create downtime event model
+FO-009: Create quality inspection model
+```
+
+GitHub issue:
+
+```text
+#17
 ```
 
 Current feature branch:
 
 ```text
-feature/fo-008-downtime-events
+feature/fo-009-quality-inspections
 ```
 
 Implemented migration:
 
 ```text
-0006_downtimeevent
+0007_qualityinspection
 ```
 
 Current verified state:
@@ -1925,31 +2333,41 @@ Current verified state:
 ```text
 Migration applied
 Django system check passing
-No missing migrations detected
-98 core automated tests passing
-DowntimeEvent registered in Django admin
-Synthetic open downtime manually verified
-Duplicate open downtime rejection manually verified
-Synthetic downtime closure manually verified
-Derived duration manually verified
+QualityInspection registered in Django admin
+Synthetic PENDING inspection manually verified
+Invalid PASSED inspection manually rejected
+Synthetic PASSED inspection manually verified
+Synthetic FAILED inspection manually verified
+Completion User traceability manually verified
+Completion timestamp traceability manually verified
+118 core automated tests passing
 ```
 
-FO-008 does not implement:
+FO-009 does not implement:
 
-- automatic ProductionRun pause
-- automatic ProductionRun resume
+- QualityInspection website workflow
+- quality dashboard metrics
 - ProductionRun completion blocking
-- closed-event immutability
-- downtime-specific website workflow outside Django admin
-- dashboard downtime metrics
-- QualityInspection
+- a required number of inspections before ProductionRun completion
+- automatic ProductionRun status changes
+- automatic actions when an inspection fails
+- quality approval workflow
+- quality rejection workflow
+- inspection plans
+- sampling plans
+- defect records
+- defect categories
+- deviations
+- corrective actions
 - AuditEvent
+- machine integration
+- real manufacturing data
 
 Those behaviours must only be implemented through future roadmap issues that explicitly define them.
 
 ---
 
-# 17. Current Database Architecture Summary
+# 18. Current Database Architecture Summary
 
 The current implemented core database architecture is:
 
@@ -1975,13 +2393,17 @@ ProductionRun ◄──── ProductionLine
     │                     ▼
     │                    User
     │
-    └────────────── DowntimeEvent
-                         │
-                         ├──── DowntimeReason
-                         │
-                         ├──── opened_by User
-                         │
-                         └──── closed_by User
+    ├────────────── DowntimeEvent
+    │                     │
+    │                     ├──── DowntimeReason
+    │                     │
+    │                     ├──── opened_by User
+    │                     │
+    │                     └──── closed_by User
+    │
+    └────────────── QualityInspection
+                          │
+                          └──── completed_by User
 ```
 
 In operational terms:
@@ -1996,6 +2418,12 @@ In operational terms:
 8. Only one open DowntimeEvent may exist for that ProductionRun at one time.
 9. Closing downtime records an end timestamp and closing User.
 10. Downtime duration is derived from the recorded timestamps.
-11. QualityInspection and AuditEvent remain planned future models.
+11. A ProductionRun may contain multiple QualityInspection records.
+12. New QualityInspection records default to PENDING.
+13. PENDING Quality Inspections contain no completion User or completion timestamp.
+14. PASSED and FAILED Quality Inspections require both a completion User and completion timestamp.
+15. QualityInspection completion state is protected by model validation and a database constraint.
+16. QualityInspection completion requirements do not currently affect ProductionRun completion.
+17. AuditEvent remains a planned future model.
 
-This is the current database foundation after FO-008.
+This is the current database foundation after FO-009.

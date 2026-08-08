@@ -16,6 +16,7 @@ from .models import (
     ProductionEntry,
     ProductionLine,
     ProductionRun,
+    QualityInspection,
     Shift,
     Site,
     WorkOrder,
@@ -1427,4 +1428,331 @@ class DowntimeEventModelTests(TestCase):
     def test_downtime_event_is_registered_in_django_admin(self):
         self.assertTrue(
             admin.site.is_registered(DowntimeEvent)
+        )
+
+
+class QualityInspectionModelTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+
+        self.completed_by = user_model.objects.create_user(
+            username="synthetic_quality",
+            password="SyntheticTestPassword123!",
+        )
+
+        self.site = Site.objects.create(
+            code="DUB01",
+            name="ForgeOps Dublin Plant",
+            description="Synthetic manufacturing site.",
+        )
+
+        self.area = ProductionArea.objects.create(
+            site=self.site,
+            code="ASSEMBLY",
+            name="Final Assembly",
+            description="Synthetic final assembly area.",
+        )
+
+        self.line = ProductionLine.objects.create(
+            production_area=self.area,
+            code="LINE-A01",
+            name="Assembly Line A",
+            description="Synthetic production line.",
+        )
+
+        self.product = Product.objects.create(
+            code="PRD-1001",
+            name="Synthetic Medical Device Assembly",
+            description="Synthetic product used for ForgeOps testing.",
+        )
+
+        self.shift = Shift.objects.create(
+            name="Night Shift",
+            start_time=time(23, 0),
+            end_time=time(7, 0),
+        )
+
+        self.work_order = WorkOrder.objects.create(
+            order_number="WO-2026-0001",
+            product=self.product,
+            planned_quantity=1000,
+            status="RELEASED",
+            notes="Synthetic ForgeOps work order.",
+        )
+
+        self.production_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.line,
+            shift=self.shift,
+            status="ACTIVE",
+            started_at=timezone.now(),
+        )
+
+    def test_quality_inspection_is_created_with_expected_relationships(self):
+        inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+            notes="Synthetic pending quality inspection.",
+        )
+
+        self.assertEqual(
+            inspection.production_run,
+            self.production_run,
+        )
+
+        self.assertIn(
+            inspection,
+            self.production_run.quality_inspections.all(),
+        )
+
+    def test_quality_inspection_defaults_are_correct(self):
+        inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+        )
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PENDING,
+        )
+        self.assertEqual(inspection.notes, "")
+        self.assertIsNone(inspection.completed_by)
+        self.assertIsNone(inspection.completed_at)
+        self.assertIsNotNone(inspection.created_at)
+        self.assertIsNotNone(inspection.updated_at)
+
+    def test_multiple_quality_inspections_can_exist_for_same_production_run(self):
+        first_inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+        )
+
+        second_inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+        )
+
+        self.assertEqual(
+            self.production_run.quality_inspections.count(),
+            2,
+        )
+
+        self.assertIn(
+            first_inspection,
+            self.production_run.quality_inspections.all(),
+        )
+
+        self.assertIn(
+            second_inspection,
+            self.production_run.quality_inspections.all(),
+        )
+
+    def test_pending_inspection_is_valid(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PENDING,
+        )
+
+        inspection.full_clean()
+        inspection.save()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PENDING,
+        )
+        self.assertIsNone(inspection.completed_by)
+        self.assertIsNone(inspection.completed_at)
+
+    def test_passed_inspection_is_valid(self):
+        completed_at = timezone.now()
+
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.completed_by,
+            completed_at=completed_at,
+            notes="Synthetic passed quality inspection.",
+        )
+
+        inspection.full_clean()
+        inspection.save()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PASSED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.completed_by,
+        )
+        self.assertEqual(
+            inspection.completed_at,
+            completed_at,
+        )
+
+    def test_failed_inspection_is_valid(self):
+        completed_at = timezone.now()
+
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.FAILED,
+            completed_by=self.completed_by,
+            completed_at=completed_at,
+            notes="Synthetic failed quality inspection.",
+        )
+
+        inspection.full_clean()
+        inspection.save()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.FAILED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.completed_by,
+        )
+        self.assertEqual(
+            inspection.completed_at,
+            completed_at,
+        )
+
+    def test_invalid_result_is_rejected_by_model_validation(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result="INVALID",
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_pending_inspection_cannot_have_completed_by_user(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PENDING,
+            completed_by=self.completed_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_pending_inspection_cannot_have_completed_at_timestamp(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PENDING,
+            completed_at=timezone.now(),
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_passed_inspection_requires_completed_by_user(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_at=timezone.now(),
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_passed_inspection_requires_completed_at_timestamp(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.completed_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_failed_inspection_requires_completed_by_user(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.FAILED,
+            completed_at=timezone.now(),
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_failed_inspection_requires_completed_at_timestamp(self):
+        inspection = QualityInspection(
+            production_run=self.production_run,
+            result=QualityInspection.Result.FAILED,
+            completed_by=self.completed_by,
+        )
+
+        with self.assertRaises(ValidationError):
+            inspection.full_clean()
+
+    def test_pending_completion_state_database_constraint(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                QualityInspection.objects.create(
+                    production_run=self.production_run,
+                    result=QualityInspection.Result.PENDING,
+                    completed_by=self.completed_by,
+                )
+
+    def test_completed_state_database_constraint(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                QualityInspection.objects.create(
+                    production_run=self.production_run,
+                    result=QualityInspection.Result.PASSED,
+                    completed_by=self.completed_by,
+                )
+
+    def test_production_run_cannot_be_deleted_while_inspection_exists(self):
+        QualityInspection.objects.create(
+            production_run=self.production_run,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.production_run.delete()
+
+    def test_completed_by_user_cannot_be_deleted_while_inspection_exists(self):
+        QualityInspection.objects.create(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.completed_by,
+            completed_at=timezone.now(),
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.completed_by.delete()
+
+    def test_completed_by_reverse_relationship_is_created(self):
+        inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.completed_by,
+            completed_at=timezone.now(),
+        )
+
+        self.assertIn(
+            inspection,
+            self.completed_by.completed_quality_inspections.all(),
+        )
+
+    def test_quality_inspection_string_representation_is_readable(self):
+        inspection = QualityInspection.objects.create(
+            production_run=self.production_run,
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.completed_by,
+            completed_at=timezone.now(),
+        )
+
+        representation = str(inspection)
+
+        self.assertIn(
+            self.work_order.order_number,
+            representation,
+        )
+
+        self.assertIn(
+            "Passed",
+            representation,
+        )
+
+    def test_quality_inspection_is_registered_in_django_admin(self):
+        self.assertTrue(
+            admin.site.is_registered(QualityInspection)
         )

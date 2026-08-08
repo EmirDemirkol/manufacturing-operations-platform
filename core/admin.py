@@ -9,6 +9,7 @@ from .models import (
     ProductionEntry,
     ProductionLine,
     ProductionRun,
+    QualityInspection,
     Shift,
     Site,
     WorkOrder,
@@ -368,3 +369,50 @@ class DowntimeEventAdmin(admin.ModelAdmin):
             return "Open"
 
         return obj.duration
+
+
+@admin.register(QualityInspection)
+class QualityInspectionAdmin(admin.ModelAdmin):
+    list_display = (
+        "production_run",
+        "result",
+        "completed_by",
+        "completed_at",
+        "created_at",
+    )
+    list_filter = (
+        "result",
+        "production_run__status",
+        "production_run__production_line__production_area__site",
+        "production_run__production_line",
+        "completed_by",
+        "completed_at",
+        "created_at",
+    )
+    search_fields = (
+        "production_run__work_order__order_number",
+        "production_run__work_order__product__code",
+        "production_run__work_order__product__name",
+        "production_run__production_line__code",
+        "production_run__production_line__name",
+        "completed_by__username",
+        "completed_by__email",
+        "notes",
+    )
+    ordering = (
+        "-created_at",
+        "-id",
+    )
+    autocomplete_fields = (
+        "production_run",
+        "completed_by",
+    )
+    list_select_related = (
+        "production_run",
+        "production_run__work_order",
+        "production_run__work_order__product",
+        "production_run__production_line",
+        "production_run__production_line__production_area",
+        "production_run__production_line__production_area__site",
+        "completed_by",
+    )
