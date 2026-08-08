@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.db.models import Sum
 
 from .models import (
+    DowntimeEvent,
     DowntimeReason,
     Product,
     ProductionArea,
@@ -12,6 +13,11 @@ from .models import (
     Site,
     WorkOrder,
 )
+
+
+# Correct Django's automatic pluralisation of ProductionEntry
+# for the administration interface only.
+ProductionEntry._meta.verbose_name_plural = "Production entries"
 
 
 @admin.register(Site)
@@ -287,8 +293,78 @@ class ProductionEntryAdmin(admin.ModelAdmin):
         "production_run__work_order",
         "production_run__work_order__product",
         "production_run__production_line",
-        "production_run__production_line__production_area",
-        "production_run__production_line__production_area__site",
-        "production_run__shift",
         "recorded_by",
     )
+
+
+@admin.register(DowntimeEvent)
+class DowntimeEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "production_run",
+        "downtime_reason",
+        "downtime_state",
+        "started_at",
+        "ended_at",
+        "downtime_duration",
+        "opened_by",
+        "closed_by",
+    )
+    list_filter = (
+        "downtime_reason",
+        "production_run__status",
+        "production_run__production_line__production_area__site",
+        "production_run__production_line",
+        "opened_by",
+        "closed_by",
+        "started_at",
+        "ended_at",
+    )
+    search_fields = (
+        "production_run__work_order__order_number",
+        "production_run__work_order__product__code",
+        "production_run__work_order__product__name",
+        "production_run__production_line__code",
+        "production_run__production_line__name",
+        "downtime_reason__code",
+        "downtime_reason__name",
+        "opened_by__username",
+        "opened_by__email",
+        "closed_by__username",
+        "closed_by__email",
+        "notes",
+    )
+    ordering = (
+        "-started_at",
+        "-id",
+    )
+    autocomplete_fields = (
+        "production_run",
+        "downtime_reason",
+        "opened_by",
+        "closed_by",
+    )
+    list_select_related = (
+        "production_run",
+        "production_run__work_order",
+        "production_run__work_order__product",
+        "production_run__production_line",
+        "production_run__production_line__production_area",
+        "production_run__production_line__production_area__site",
+        "downtime_reason",
+        "opened_by",
+        "closed_by",
+    )
+
+    @admin.display(description="State")
+    def downtime_state(self, obj):
+        if obj.ended_at is None:
+            return "Open"
+
+        return "Closed"
+
+    @admin.display(description="Duration")
+    def downtime_duration(self, obj):
+        if obj.duration is None:
+            return "Open"
+
+        return obj.duration

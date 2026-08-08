@@ -442,3 +442,128 @@ class ProductionEntry(models.Model):
             f"Good: {self.good_quantity}, "
             f"Rejected: {self.rejected_quantity}"
         )
+
+
+class DowntimeEvent(models.Model):
+    production_run = models.ForeignKey(
+        ProductionRun,
+        on_delete=models.PROTECT,
+        related_name="downtime_events",
+    )
+    downtime_reason = models.ForeignKey(
+        DowntimeReason,
+        on_delete=models.PROTECT,
+        related_name="downtime_events",
+    )
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="opened_downtime_events",
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="closed_downtime_events",
+        null=True,
+        blank=True,
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(ended_at__isnull=True)
+                    | models.Q(
+                        ended_at__gte=models.F("started_at")
+                    )
+                ),
+                name="downtime_event_end_not_before_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        ended_at__isnull=True,
+                        closed_by__isnull=True,
+                    )
+                    | models.Q(
+                        ended_at__isnull=False,
+                        closed_by__isnull=False,
+                    )
+                ),
+                name="downtime_event_close_state_consistent",
+            ),
+            models.UniqueConstraint(
+                fields=["production_run"],
+                condition=models.Q(ended_at__isnull=True),
+                name="unique_open_downtime_per_production_run",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        if (
+            self._state.adding
+            and self.production_run_id
+            and self.production_run.status
+            != ProductionRun.Status.ACTIVE
+        ):
+            errors["production_run"] = (
+                "Downtime can only be opened against "
+                "an active production run."
+            )
+
+        if (
+            self.started_at is not None
+            and self.ended_at is not None
+            and self.ended_at < self.started_at
+        ):
+            errors["ended_at"] = (
+                "End time cannot be earlier than start time."
+            )
+
+        if (
+            self.ended_at is None
+            and self.closed_by_id is not None
+        ):
+            errors["closed_by"] = (
+                "Closed by must be empty while downtime is open."
+            )
+
+        if (
+            self.ended_at is not None
+            and self.closed_by_id is None
+        ):
+            errors["closed_by"] = (
+                "Closed by is required when downtime is closed."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    @property
+    def duration(self):
+        if self.ended_at is None:
+            return None
+
+        return self.ended_at - self.started_at
+
+    def __str__(self):
+        state = "Open" if self.ended_at is None else "Closed"
+
+        return (
+            f"{self.production_run.work_order.order_number} - "
+            f"{self.downtime_reason.code} - "
+            f"{state}"
+        )

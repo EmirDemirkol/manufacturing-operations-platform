@@ -10,7 +10,7 @@ PostgreSQL is the intended database architecture for a later deployment phase.
 
 ForgeOps uses Django's built-in User and Group models for authentication and role management.
 
-All manufacturing examples and demonstration records use synthetic data.
+All manufacturing examples, manual demonstrations and automated test records use synthetic data.
 
 ---
 
@@ -42,6 +42,14 @@ Django Groups represent the ForgeOps roles:
 - Manufacturing Engineer
 - Operations Manager
 - System Administrator
+
+Users are also referenced by transactional records for operational traceability.
+
+Current examples include:
+
+- `ProductionEntry.recorded_by`
+- `DowntimeEvent.opened_by`
+- `DowntimeEvent.closed_by`
 
 ---
 
@@ -229,11 +237,13 @@ A Work Order represents a planned quantity of a Product that must be manufacture
 
 ### Status Values
 
-- Draft
-- Released
-- In Progress
-- Completed
-- Cancelled
+```text
+DRAFT
+RELEASED
+IN_PROGRESS
+COMPLETED
+CANCELLED
+```
 
 ### Rules
 
@@ -276,7 +286,7 @@ A Production Run represents an individual execution of manufacturing work for a 
 - Created date and time
 - Updated date and time
 
-Production quantities are not stored directly on the ProductionRun.
+Production quantities are not stored directly on ProductionRun.
 
 Instead, good and rejected quantities are derived from related ProductionEntry records.
 
@@ -286,13 +296,17 @@ Instead, good and rejected quantities are derived from related ProductionEntry r
 - Rejected quantity
 - Total recorded quantity
 
+Remaining quantity and completion percentage remain unresolved business definitions for a later workflow issue and must not be treated as final business rules yet.
+
 ### Status Values
 
-- Planned
-- Active
-- Paused
-- Completed
-- Cancelled
+```text
+PLANNED
+ACTIVE
+PAUSED
+COMPLETED
+CANCELLED
+```
 
 ### Rules
 
@@ -306,6 +320,7 @@ Instead, good and rejected quantities are derived from related ProductionEntry r
 - Production Lines referenced by Production Runs are protected from deletion.
 - Shifts referenced by Production Runs are protected from deletion.
 - A Production Run cannot be deleted while dependent Production Entries exist.
+- A Production Run cannot be deleted while dependent Downtime Events exist.
 - A Production Run may be marked inactive instead of being deleted.
 
 ### Example
@@ -323,7 +338,7 @@ Rejected Quantity: derived from ProductionEntry records
 
 ## ProductionEntry
 
-A Production Entry represents an individual manufacturing quantity recording made against an active Production Run.
+A Production Entry represents an individual manufacturing quantity recording made against an ACTIVE Production Run.
 
 ProductionEntry provides an incremental record of manufacturing output rather than repeatedly overwriting quantity counters on ProductionRun.
 
@@ -365,7 +380,7 @@ ProductionEntry provides an incremental record of manufacturing output rather th
 Production Run: WO-2026-0001 / LINE-A01
 Good Quantity: 250
 Rejected Quantity: 5
-Recorded By: operator user
+Recorded By: synthetic_operator
 Recorded At: automatically generated
 ```
 
@@ -415,6 +430,7 @@ A Downtime Reason represents a standard reason for a manufacturing stoppage.
 - Reason code may contain uppercase letters, numbers, hyphens and underscores only.
 - Reason name is required.
 - A Downtime Reason may be marked inactive instead of being deleted.
+- A Downtime Reason referenced by a DowntimeEvent is protected from deletion.
 
 ### Example Reasons
 
@@ -428,42 +444,171 @@ CHANGEOVER - Production changeover
 
 ---
 
-## Planned DowntimeEvent
+## DowntimeEvent
 
-This model is part of the planned ForgeOps architecture and has not yet been implemented.
+A Downtime Event represents one period of production downtime recorded against a ProductionRun.
 
-A Downtime Event represents a period during which production stopped.
+DowntimeEvent was implemented as part of FO-008.
 
 ### Attributes
 
 - ID
 - Production Run
 - Downtime Reason
-- Start date and time
-- End date and time
+- Started date and time
+- Ended date and time
 - Opened by
 - Closed by
 - Notes
 - Created date and time
 - Updated date and time
 
+### Relationships
+
+```text
+DowntimeEvent.production_run -> ProductionRun
+DowntimeEvent.downtime_reason -> DowntimeReason
+DowntimeEvent.opened_by -> User
+DowntimeEvent.closed_by -> User
+```
+
+The relationships use protected deletion to preserve operational history.
+
 ### Rules
 
-- Each Downtime Event belongs to one Production Run.
-- Each Downtime Event has one Downtime Reason.
-- Downtime can only be opened for an active Production Run.
-- End time cannot be earlier than start time.
-- A closed Downtime Event cannot be closed again.
-- A Production Run cannot be completed while it has open Downtime.
+- Each Downtime Event belongs to exactly one Production Run.
+- Each Downtime Event uses exactly one Downtime Reason.
+- A Downtime Event may only be opened against a Production Run with ACTIVE status.
+- PLANNED Production Runs cannot accept new Downtime Events.
+- PAUSED Production Runs cannot accept new Downtime Events.
+- COMPLETED Production Runs cannot accept new Downtime Events.
+- CANCELLED Production Runs cannot accept new Downtime Events.
+- `started_at` is required.
+- `ended_at` may remain empty while downtime is open.
+- `ended_at` cannot occur before `started_at`.
+- An open Downtime Event has no `ended_at`.
+- An open Downtime Event has no `closed_by` User.
+- A closed Downtime Event has an `ended_at` value.
+- A closed Downtime Event records a `closed_by` User.
+- Only one open Downtime Event may exist for a Production Run at one time.
+- One Production Run may contain multiple closed Downtime Events over time.
+- `opened_by` is required.
+- `closed_by` is optional while downtime remains open.
+- Notes are optional.
+- ProductionRun records referenced by Downtime Events are protected from deletion.
+- DowntimeReason records referenced by Downtime Events are protected from deletion.
+- Users referenced through `opened_by` are protected from deletion.
+- Users referenced through `closed_by` are protected from deletion.
+- Automatic ProductionRun pause and resume behaviour is not implemented by FO-008.
+- FO-008 does not define closed Downtime Events as immutable records.
+- FO-008 does not implement ProductionRun completion blocking based on open downtime.
 
-### Calculated Value
+### Open Event Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Downtime Reason: EQUIPMENT - Equipment fault
+Started At: 2026-08-08 12:48
+Ended At: blank
+Opened By: admin
+Closed By: blank
+State: Open
+Duration: Open
+```
+
+### Closed Event Example
+
+```text
+Production Run: WO-2026-0001 / LINE-A01
+Downtime Reason: EQUIPMENT - Equipment fault
+Started At: 2026-08-08 12:48
+Ended At: 2026-08-08 12:53
+Opened By: admin
+Closed By: admin
+State: Closed
+Duration: derived from timestamps
+```
+
+All examples are synthetic.
+
+### Derived Duration
+
+Downtime duration is not stored independently.
+
+For a closed event:
 
 ```text
 Downtime duration =
-downtime end date and time - downtime start date and time
+ended_at - started_at
 ```
 
-The duration should be calculated from timestamps rather than manually entered.
+For an open event:
+
+```text
+duration = None
+```
+
+The Django administration displays an open event as `Open` until an end timestamp exists.
+
+### Database Constraints
+
+DowntimeEvent currently includes:
+
+```text
+downtime_event_end_not_before_start
+```
+
+This prevents an end timestamp from occurring before the start timestamp.
+
+It also includes:
+
+```text
+downtime_event_close_state_consistent
+```
+
+This keeps `ended_at` and `closed_by` consistent between open and closed states.
+
+It also includes:
+
+```text
+unique_open_downtime_per_production_run
+```
+
+This prevents more than one open Downtime Event from existing for the same ProductionRun at one time.
+
+### Django Administration
+
+DowntimeEvent is registered in Django administration.
+
+The current administration view supports inspection of:
+
+- Production Run
+- Downtime Reason
+- Open or closed state
+- Started timestamp
+- Ended timestamp
+- Derived duration
+- Opening User
+- Closing User
+
+The administration configuration also provides filters, search fields, autocomplete fields and related-object query optimisation.
+
+### Manual FO-008 Verification
+
+FO-008 was manually exercised using synthetic records through Django administration.
+
+The manual verification demonstrated that:
+
+1. A ProductionRun can be moved into ACTIVE status.
+2. A DowntimeEvent can be opened against that ACTIVE ProductionRun.
+3. The open event records its DowntimeReason and opening User.
+4. `ended_at` and `closed_by` remain empty while the event is open.
+5. A second open DowntimeEvent for the same ProductionRun is rejected.
+6. The original DowntimeEvent can be closed by supplying `ended_at` and `closed_by`.
+7. The event then displays as Closed.
+8. The duration is calculated from the stored timestamps.
+
+All records used for this verification were synthetic.
 
 ---
 
@@ -473,7 +618,7 @@ This model is part of the planned ForgeOps architecture and has not yet been imp
 
 A Quality Inspection represents a basic quality check performed against a Production Run.
 
-### Attributes
+### Planned Attributes
 
 - ID
 - Production Run
@@ -484,19 +629,23 @@ A Quality Inspection represents a basic quality check performed against a Produc
 - Created date and time
 - Updated date and time
 
-### Result Values
+### Planned Result Values
 
-- Pending
-- Passed
-- Failed
+```text
+PENDING
+PASSED
+FAILED
+```
 
-### Rules
+### Planned Rules
 
 - Each Quality Inspection belongs to one Production Run.
-- Only authorised Quality users can record the result.
-- A completed result must be Passed or Failed.
-- Failed results must be visible to authorised Supervisors and Managers.
-- Required Quality Inspections must be completed before the Production Run is completed.
+- Quality actions should be role restricted.
+- A completed result should be PASSED or FAILED.
+- Failed results should be visible to authorised Supervisors and Managers.
+- Required Quality Inspections may need to be completed before Production Run completion.
+
+The exact QualityInspection implementation must be decided by its future GitHub issue.
 
 ---
 
@@ -506,7 +655,7 @@ This model is part of the planned ForgeOps architecture and has not yet been imp
 
 An Audit Event represents an important action performed in ForgeOps.
 
-### Attributes
+### Planned Attributes
 
 - ID
 - User
@@ -516,24 +665,30 @@ An Audit Event represents an important action performed in ForgeOps.
 - Description
 - Event date and time
 
-### Example Action Types
+### Example Planned Action Types
 
-- Created
-- Updated
-- Assigned
-- Started
-- Completed
-- Cancelled
-- Opened
-- Closed
-- Corrected
+```text
+Created
+Updated
+Assigned
+Started
+Completed
+Cancelled
+Opened
+Closed
+Corrected
+```
 
-### Rules
+### Planned Principles
 
-- Audit Events are created automatically.
-- Audit Events cannot be edited through the normal application interface.
-- Audit Events cannot be deleted through the normal application interface.
-- An Audit Event may reference a record without using a direct database relationship to every possible entity.
+- Audit Events should be created automatically.
+- Audit Events should not be editable through normal application workflows.
+- Audit Events should not be deletable through normal application workflows.
+- An Audit Event may identify an affected record using record type and record identifier rather than requiring a direct foreign key to every possible model.
+
+ForgeOps audit history is an educational traceability feature and must not be represented as a validated regulatory audit trail.
+
+The exact AuditEvent implementation must be decided by its future GitHub issue.
 
 ---
 
@@ -564,14 +719,17 @@ An Audit Event represents an important action performed in ForgeOps.
 
 One Production Run belongs to:
 
-- One Work Order
-- One Production Line
-- One Shift
+- one Work Order
+- one Production Line
+- one Shift
 
-One Production Run can have many:
+One Production Run can currently have many:
 
 - Production Entries
 - Downtime Events
+
+A future Production Run may also have:
+
 - Quality Inspections
 
 ## Production-Entry Relationships
@@ -585,26 +743,32 @@ One Production Run can have many:
 
 ## Downtime Relationships
 
+- One Production Run may have many Downtime Events over time.
+- One Downtime Event belongs to exactly one Production Run.
 - One Downtime Reason may be used by many Downtime Events.
-- One Production Run may have many Downtime Events.
-- One Downtime Event belongs to one Production Run.
-- One Downtime Event uses one Downtime Reason.
+- One Downtime Event uses exactly one Downtime Reason.
+- One User may open many Downtime Events.
+- One User may close many Downtime Events.
+- ProductionRun downtime records are available through `downtime_events`.
+- DowntimeReason downtime records are available through `downtime_events`.
+- Opening User relationships are available through `opened_downtime_events`.
+- Closing User relationships are available through `closed_downtime_events`.
 
-## Quality Relationships
+## Planned Quality Relationships
 
 - One Production Run may have many Quality Inspections.
 - One Quality Inspection belongs to one Production Run.
 - One Quality User may complete many Quality Inspections.
 
-## Audit Relationships
+## Planned Audit Relationships
 
 - One User may generate many Audit Events.
-- Each Audit Event records one action performed by one User.
-- Audit Events identify affected records using record type and record identifier.
+- Each Audit Event may record one action performed by one User.
+- Audit Events may identify affected records using record type and record identifier.
 
 ---
 
-# 3. Relationship Summary
+# 3. Current Relationship Summary
 
 ```text
 Site
@@ -612,60 +776,104 @@ Site
     └── ProductionLine
         └── ProductionRun
             ├── ProductionEntry
-            ├── DowntimeEvent
-            │   └── DowntimeReason
-            └── QualityInspection
+            └── DowntimeEvent
+                └── DowntimeReason
 
 Product
 └── WorkOrder
     └── ProductionRun
-        └── ProductionEntry
 
 Shift
 └── ProductionRun
 
 User
 ├── ProductionEntry
-├── DowntimeEvent opening and closing
-├── QualityInspection completion
-└── AuditEvent
+├── DowntimeEvent.opened_by
+└── DowntimeEvent.closed_by
 ```
+
+Planned future relationships include QualityInspection and AuditEvent.
 
 ---
 
-# 4. Initial Integrity Rules
+# 4. Current Integrity Rules
+
+## Manufacturing Hierarchy
 
 - Site codes must be globally unique.
 - Production Area codes must be unique within each Site.
 - Production Line codes must be unique within each Production Area.
-- Product codes must be globally unique.
-- Work-order numbers must be globally unique.
-- Downtime Reason codes must be globally unique.
 - Business codes may contain uppercase letters, numbers, hyphens and underscores only.
+
+## Product
+
+- Product codes must be globally unique.
+- Products referenced by Work Orders cannot be deleted.
+
+## Shift
+
 - Shift names must be globally unique.
 - Shift start time and end time cannot be identical.
 - An end time earlier than a Shift start time represents an overnight Shift.
-- Planned Work Order quantities must be greater than zero.
+- Overnight Shifts are valid.
+- Shifts referenced by Production Runs cannot be deleted.
+
+## DowntimeReason
+
+- Downtime Reason codes must be globally unique.
+- Downtime Reason codes use the shared business-code format.
+- Downtime Reasons referenced by Downtime Events cannot be deleted.
+
+## WorkOrder
+
+- Work-order numbers must be globally unique.
+- Planned quantities must be greater than zero.
+- Products referenced by Work Orders are protected from deletion.
+- Work Orders referenced by Production Runs are protected from deletion.
+
+## ProductionRun
+
 - A Production Run end timestamp cannot occur before its start timestamp.
 - Only one Production Run may have ACTIVE status for a Work Order at a time.
-- ProductionEntry good quantities cannot be negative.
-- ProductionEntry rejected quantities cannot be negative.
+- Different Work Orders may each have an ACTIVE Production Run.
+- Production Lines referenced by Production Runs are protected from deletion.
+- Shifts referenced by Production Runs are protected from deletion.
+- ProductionRun quantities are derived from ProductionEntry records rather than stored as duplicate counters.
+- Production Runs referenced by Production Entries cannot be deleted.
+- Production Runs referenced by Downtime Events cannot be deleted.
+
+## ProductionEntry
+
+- Good quantities cannot be negative.
+- Rejected quantities cannot be negative.
 - A ProductionEntry must contain at least one recorded unit.
+- Zero good and zero rejected together are invalid.
 - Production Entries may only be added to ACTIVE Production Runs.
-- ProductionRun quantity totals must be derived from ProductionEntry records.
-- Parent manufacturing records cannot be deleted while protected dependent child records exist.
 - Production Runs referenced by Production Entries cannot be deleted.
 - Users referenced by Production Entries cannot be deleted.
+- Recorded timestamps are generated automatically.
+
+## DowntimeEvent
+
+- Downtime Events may only be opened against ACTIVE Production Runs.
+- End timestamps cannot occur before start timestamps.
+- An open event has no `ended_at`.
+- An open event has no `closed_by`.
+- A closed event has both `ended_at` and `closed_by`.
+- Only one open Downtime Event may exist for one Production Run at a time.
+- Multiple closed Downtime Events may exist for the same Production Run.
+- ProductionRun references use protected deletion.
+- DowntimeReason references use protected deletion.
+- Opening User references use protected deletion.
+- Closing User references use protected deletion.
+- Duration is derived from timestamps.
+
+## General Integrity
+
 - Database relationships must prevent references to records that do not exist.
-- Reference and operational records that support inactive status may be marked inactive instead of being deleted.
-- Audit records cannot be changed through standard application workflows.
-- All manufacturing examples and demonstration records must use synthetic data.
-
-Future workflow rules will include:
-
-- Open Downtime Events must be closed before Production Run completion.
-- Required Quality Inspections must be completed before Production Run completion.
-- Inactive reference records should not be selectable for new operational records.
+- Parent manufacturing records cannot be deleted while protected dependent records exist.
+- Reference and operational records supporting inactive status may be marked inactive instead of being deleted.
+- All manufacturing examples, manual demonstrations and automated tests must use synthetic data.
 
 ---
 
@@ -673,40 +881,52 @@ Future workflow rules will include:
 
 The following values should be calculated instead of manually entered where the related operational models provide the source data:
 
-- Total good quantity
-- Total rejected quantity
-- Total recorded quantity
-- Remaining quantity
-- Completion percentage
-- Rejection rate
-- Total downtime
-- Downtime duration
-- Active-run count
-- Completed-run count
-- Failed-inspection count
+- total good quantity
+- total rejected quantity
+- total recorded quantity
+- remaining quantity
+- completion percentage
+- rejection rate
+- total downtime
+- downtime duration
+- active-run count
+- completed-run count
+- failed-inspection count
 
 ProductionRun manufacturing totals are derived directly from related ProductionEntry records.
 
-Example formulas:
+## Total Good Quantity
 
 ```text
 Total good quantity =
 sum of ProductionEntry good quantities
 ```
 
+## Total Rejected Quantity
+
 ```text
 Total rejected quantity =
 sum of ProductionEntry rejected quantities
 ```
+
+## Total Recorded Quantity
 
 ```text
 Total recorded quantity =
 total good quantity + total rejected quantity
 ```
 
-Remaining quantity and completion percentage depend on the final business definition of manufacturing progress.
+## Remaining Quantity
 
-Possible completion approaches include:
+The final business definition of remaining quantity remains unresolved.
+
+It must not be treated as a final business rule until the relevant operational workflow issue explicitly resolves how production progress should be measured.
+
+## Completion Percentage
+
+The final business definition of completion percentage remains unresolved.
+
+Possible approaches include:
 
 ```text
 good quantity / planned quantity × 100
@@ -718,25 +938,45 @@ or:
 total recorded quantity / planned quantity × 100
 ```
 
-The final calculation will be decided when the related operational workflow is implemented.
+The final calculation must be decided explicitly during the relevant operational or analytics workflow issue.
+
+## Rejection Rate
+
+A possible rejection-rate calculation is:
 
 ```text
-Rejection rate =
-total rejected quantity / total recorded quantity × 100
+rejected quantity / total recorded quantity × 100
 ```
+
+Any implementation must safely handle a total recorded quantity of zero.
+
+## Downtime Duration
+
+For a closed DowntimeEvent:
 
 ```text
-Downtime duration =
-downtime end time - downtime start time
+downtime duration =
+ended_at - started_at
 ```
 
-Division calculations must safely handle a total of zero.
+Open Downtime Events have no completed duration.
+
+## Total Downtime
+
+A future operational metric may calculate:
+
+```text
+total downtime =
+sum of closed DowntimeEvent durations
+```
+
+The reporting implementation is not part of FO-008.
 
 ---
 
 # 6. MVP Database Boundary
 
-The following entities are deliberately excluded from the initial database:
+The following entities are deliberately excluded from the initial ForgeOps MVP:
 
 - Machine
 - Batch
@@ -746,22 +986,28 @@ The following entities are deliberately excluded from the initial database:
 - CorrectiveAction
 - InspectionPlan
 
-These entities can be introduced after the core production workflow is working, tested and deployed.
+These entities should not be introduced until the core production workflow is working and the roadmap deliberately expands to include them.
 
 ---
 
 # 7. Open Design Questions
 
-The following decisions must be reviewed before the related operational workflows are implemented:
+The following decisions remain unresolved:
 
-- Can an Operator have more than one active Production Run?
+- Can an Operator have more than one ACTIVE Production Run?
 - How many Quality Inspections are required before a Production Run can be completed?
 - Should Production Entries be correctable, or should corrections create replacement records?
 - Should Downtime Events automatically pause a Production Run?
+- Should closing downtime automatically resume a Production Run?
+- Should open Downtime Events block Production Run completion?
+- Should closed Downtime Events become immutable after closure?
 - Should completion percentage use good quantity or total recorded quantity?
+- How should remaining quantity be calculated?
 - Should Supervisors be able to record quantities on behalf of Operators?
 
-The following questions have already been resolved:
+These decisions should be made only when their related workflow or model issue is implemented.
+
+The following decisions have already been resolved:
 
 - A Work Order may contain multiple Production Runs.
 - Only one Production Run for a Work Order may have ACTIVE status at a time.
@@ -771,6 +1017,12 @@ The following questions have already been resolved:
 - Production Entries may only be recorded against ACTIVE Production Runs.
 - Production Entries record the User responsible for the entry.
 - Production Entry timestamps are generated automatically.
+- Downtime Events are recorded as individual transactional records.
+- Downtime Events may only be opened against ACTIVE Production Runs.
+- Only one open Downtime Event may exist for a Production Run at one time.
+- Downtime duration is derived from start and end timestamps.
+- Downtime opening and closing Users are traceable.
+- FO-008 does not automatically pause or resume Production Runs.
 
 ---
 
@@ -780,8 +1032,8 @@ ForgeOps currently implements the following physical manufacturing hierarchy:
 
 ```text
 Site
-└── Production Area
-    └── Production Line
+└── ProductionArea
+    └── ProductionLine
 ```
 
 ## Implemented Data Integrity Rules
@@ -801,7 +1053,7 @@ Site
 
 # 9. Operational Reference Models
 
-ForgeOps implements operational reference data used by Work Orders, Production Runs and future Downtime Events.
+ForgeOps implements operational reference data used by Work Orders, Production Runs and Downtime Events.
 
 ## Product
 
@@ -889,6 +1141,7 @@ CHANGEOVER - Production changeover
 - Downtime Reason codes use uppercase letters, numbers, hyphens and underscores only.
 - Downtime Reason names are required.
 - Downtime Reasons may be marked inactive instead of being deleted.
+- Downtime Reasons referenced by Downtime Events are protected from deletion.
 - All DowntimeReason examples use synthetic data.
 
 ## Implemented Validation and Administration
@@ -906,17 +1159,18 @@ CHANGEOVER - Production changeover
 
 # 10. Work Orders and Production Runs
 
-ForgeOps implements Work Orders and Production Runs to represent planned manufacturing demand and the execution of that manufacturing work.
+ForgeOps implements WorkOrder and ProductionRun to represent planned manufacturing demand and execution.
 
-The operational relationship is:
+The current operational relationship is:
 
 ```text
 Product
 └── WorkOrder
     └── ProductionRun
+        ├── ProductionEntry
+        ├── DowntimeEvent
         ├── ProductionLine
-        ├── Shift
-        └── ProductionEntry
+        └── Shift
 ```
 
 ## WorkOrder
@@ -1022,6 +1276,7 @@ Rejected Quantity: derived from ProductionEntry records
 - Production Lines referenced by Production Runs are protected from deletion.
 - Shifts referenced by Production Runs are protected from deletion.
 - Production Runs referenced by Production Entries are protected from deletion.
+- Production Runs referenced by Downtime Events are protected from deletion.
 - Production Runs may be marked inactive instead of being deleted.
 - All Production Run examples use synthetic manufacturing data.
 
@@ -1029,18 +1284,18 @@ Rejected Quantity: derived from ProductionEntry records
 
 The WorkOrder model includes:
 
-- A database uniqueness constraint for `order_number`.
-- A positive-value requirement for `planned_quantity`.
-- A database check ensuring `planned_quantity` is greater than zero.
-- Protected deletion for referenced Product records.
+- globally unique `order_number`
+- positive `planned_quantity`
+- database check requiring `planned_quantity > 0`
+- protected Product relationship
 
 The ProductionRun model includes:
 
-- A database constraint preventing `ended_at` from occurring before `started_at`.
-- A conditional uniqueness constraint allowing only one ACTIVE Production Run per Work Order.
-- Protected deletion for referenced Work Orders.
-- Protected deletion for referenced Production Lines.
-- Protected deletion for referenced Shifts.
+- database protection against `ended_at < started_at`
+- conditional uniqueness allowing only one ACTIVE Production Run per Work Order
+- protected WorkOrder relationship
+- protected ProductionLine relationship
+- protected Shift relationship
 
 Production quantities are not duplicated in ProductionRun database fields.
 
@@ -1167,8 +1422,6 @@ COMPLETED
 CANCELLED
 ```
 
-This prevents historical or inactive production executions from receiving new manufacturing output.
-
 ## Production Totals
 
 ProductionRun exposes derived totals calculated from related ProductionEntry records.
@@ -1190,31 +1443,23 @@ good_quantity = 0
 rejected_quantity = 0
 ```
 
-This provides one source of truth for manufacturing quantities.
-
 ## Traceability
 
 Each ProductionEntry records:
 
 - the ProductionRun receiving the quantity
 - the User responsible for recording the quantity
-- the accepted good quantity
-- the rejected quantity
-- the time the quantity was recorded
-- optional contextual notes
+- good quantity
+- rejected quantity
+- recorded timestamp
+- optional notes
 
 The `recorded_at` timestamp is generated automatically.
 
-This creates a chronological record of production output rather than overwriting a single quantity value.
-
 ## Deletion Protection
-
-ProductionEntry uses protected relationships.
 
 - A ProductionRun cannot be deleted while ProductionEntry records reference it.
 - A User cannot be deleted while ProductionEntry records reference that User as `recorded_by`.
-
-This protects historical production traceability.
 
 ## Django Administration
 
@@ -1222,18 +1467,11 @@ ProductionEntry is registered in Django administration.
 
 Administrative users can inspect ProductionEntry records together with related operational information.
 
-This includes:
+The administration label uses the correct plural:
 
-- Production Run
-- Work Order
-- Product
-- Production Line
-- Shift
-- Recorded User
-- Good quantity
-- Rejected quantity
-- Recorded timestamp
-- Notes
+```text
+Production entries
+```
 
 ## Implemented Migration
 
@@ -1245,10 +1483,10 @@ The ProductionEntry architecture is introduced through:
 
 The migration:
 
-- creates the ProductionEntry model
+- creates ProductionEntry
 - links ProductionEntry to ProductionRun
-- links ProductionEntry to the Django User model
-- adds the automatically generated recorded timestamp
+- links ProductionEntry to Django User
+- adds the automatically generated `recorded_at` timestamp
 - removes stored `good_quantity` from ProductionRun
 - removes stored `rejected_quantity` from ProductionRun
 - removes the old ProductionRun quantity constraints
@@ -1278,14 +1516,313 @@ Automated tests verify:
 - ProductionRun totals defaulting to zero without entries
 - ProductionRun deletion protection
 - User deletion protection
-- ProductionEntry string representations
+- ProductionEntry string representation
 - ProductionEntry Django administration registration
 
 All ProductionEntry examples and test records use synthetic manufacturing data.
 
 ---
 
-# 12. Current Implementation Status
+# 12. Downtime Events
+
+FO-008 implements DowntimeEvent as the transactional model for production stoppages.
+
+The architecture is:
+
+```text
+ProductionRun
+└── DowntimeEvent
+    ├── downtime_reason
+    ├── started_at
+    ├── ended_at
+    ├── opened_by
+    ├── closed_by
+    └── notes
+```
+
+## DowntimeEvent Key Fields
+
+- `production_run`
+- `downtime_reason`
+- `started_at`
+- `ended_at`
+- `opened_by`
+- `closed_by`
+- `notes`
+- `created_at`
+- `updated_at`
+
+## Relationships
+
+- Each DowntimeEvent belongs to exactly one ProductionRun.
+- Each DowntimeEvent uses exactly one DowntimeReason.
+- Each DowntimeEvent records exactly one opening User.
+- A closed DowntimeEvent records a closing User.
+- One ProductionRun may contain multiple DowntimeEvents over time.
+- One DowntimeReason may be referenced by multiple DowntimeEvents.
+- One User may open multiple DowntimeEvents.
+- One User may close multiple DowntimeEvents.
+
+Reverse relationships use:
+
+```text
+ProductionRun.downtime_events
+DowntimeReason.downtime_events
+User.opened_downtime_events
+User.closed_downtime_events
+```
+
+## Production Run Status Validation
+
+A new DowntimeEvent may only be opened against:
+
+```text
+ACTIVE
+```
+
+New downtime is rejected for:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+The ACTIVE requirement applies when the DowntimeEvent is created.
+
+FO-008 does not automatically modify ProductionRun status when downtime opens or closes.
+
+## Open and Closed States
+
+An open DowntimeEvent has:
+
+```text
+ended_at = null
+closed_by = null
+```
+
+A closed DowntimeEvent has:
+
+```text
+ended_at = populated
+closed_by = populated
+```
+
+The database protects the consistency of those states.
+
+## Timestamp Validation
+
+A closed DowntimeEvent must satisfy:
+
+```text
+ended_at >= started_at
+```
+
+Invalid timestamp ordering is rejected through model validation and a database constraint.
+
+## One Open Downtime Event Per Run
+
+Only one DowntimeEvent with no end timestamp may exist for a ProductionRun at one time.
+
+Conceptually:
+
+```text
+one ProductionRun
+    -> maximum one open DowntimeEvent
+```
+
+A ProductionRun may still have multiple historical closed DowntimeEvents.
+
+## Duration
+
+Duration is derived rather than stored.
+
+```text
+duration =
+ended_at - started_at
+```
+
+An open DowntimeEvent returns no completed duration.
+
+## Traceability
+
+DowntimeEvent preserves:
+
+- which ProductionRun stopped
+- why it stopped
+- when downtime started
+- when downtime ended
+- who opened downtime
+- who closed downtime
+- optional notes
+
+## Deletion Protection
+
+The following relationships use protected deletion:
+
+- ProductionRun
+- DowntimeReason
+- opening User
+- closing User
+
+This prevents deletion of referenced records from destroying downtime history.
+
+## Django Administration
+
+DowntimeEvent is registered in Django administration.
+
+The current administrative list displays:
+
+- Production Run
+- Downtime Reason
+- state
+- started timestamp
+- ended timestamp
+- derived duration
+- opened by
+- closed by
+
+Search, filtering, autocomplete and related-object optimisation are configured for practical inspection.
+
+## Manual Synthetic Verification
+
+FO-008 was manually tested through Django administration using synthetic data.
+
+The test flow demonstrated:
+
+```text
+ProductionRun -> ACTIVE
+
+DowntimeEvent -> Open
+Reason -> EQUIPMENT
+Opened by -> admin
+Ended at -> blank
+Closed by -> blank
+```
+
+A second open DowntimeEvent for the same ProductionRun was rejected by:
+
+```text
+unique_open_downtime_per_production_run
+```
+
+The original event was then closed by adding:
+
+```text
+ended_at
+closed_by
+```
+
+The administration page correctly displayed:
+
+```text
+State: Closed
+Duration: derived from timestamps
+Closed by: admin
+```
+
+## Implemented Migration
+
+DowntimeEvent is introduced through:
+
+```text
+0006_downtimeevent
+```
+
+The migration:
+
+- creates DowntimeEvent
+- links DowntimeEvent to ProductionRun
+- links DowntimeEvent to DowntimeReason
+- links `opened_by` to Django User
+- links optional `closed_by` to Django User
+- adds `started_at`
+- adds optional `ended_at`
+- adds optional notes
+- adds creation and update timestamps
+- adds the end-not-before-start constraint
+- adds the open/closed state consistency constraint
+- adds the one-open-event-per-ProductionRun constraint
+
+The migration depends on:
+
+```text
+0005_create_production_entries
+```
+
+and Django's swappable User model dependency.
+
+## Automated Validation
+
+FO-008 automated tests verify:
+
+- expected DowntimeEvent relationships
+- open-event defaults
+- creation against ACTIVE ProductionRuns
+- rejection against PLANNED ProductionRuns
+- rejection against PAUSED ProductionRuns
+- rejection against COMPLETED ProductionRuns
+- rejection against CANCELLED ProductionRuns
+- model validation for invalid timestamp ordering
+- database rejection of invalid timestamp ordering
+- prevention of multiple open DowntimeEvents for one ProductionRun
+- multiple closed DowntimeEvents for one ProductionRun
+- open-event `closed_by` consistency
+- closed-event `closed_by` consistency
+- database close-state consistency
+- derived closed-event duration
+- ProductionRun deletion protection
+- DowntimeReason deletion protection
+- opening User deletion protection
+- closing User deletion protection
+- readable string representation
+- Django admin registration
+
+All FO-008 tests use synthetic manufacturing data.
+
+---
+
+# 13. Migration History
+
+The current ForgeOps core migration sequence is:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+```
+
+All six migrations are currently applied in the local SQLite development database.
+
+---
+
+# 14. Current Test Milestone
+
+The current full core test milestone is:
+
+```text
+Ran 98 tests
+OK
+```
+
+Historical milestones include:
+
+```text
+FO-005: 34 tests
+FO-006: 58 tests
+FO-007: 77 tests
+FO-008: 98 tests
+```
+
+FO-008 adds DowntimeEvent coverage without replacing or removing the existing FO-007 test baseline.
+
+---
+
+# 15. Current Implementation Status
 
 The following database models are currently implemented:
 
@@ -1301,38 +1838,43 @@ DowntimeReason
 WorkOrder
 ProductionRun
 ProductionEntry
+DowntimeEvent
 ```
 
-The current implemented operational flow is:
+The current implemented operational structure is:
 
 ```text
 Site
 └── ProductionArea
     └── ProductionLine
         └── ProductionRun
-            └── ProductionEntry
+            ├── ProductionEntry
+            └── DowntimeEvent
 
 Product
 └── WorkOrder
     └── ProductionRun
-        └── ProductionEntry
 
 Shift
 └── ProductionRun
 
+DowntimeReason
+└── DowntimeEvent
+
 User
-└── ProductionEntry
+├── ProductionEntry
+├── DowntimeEvent.opened_by
+└── DowntimeEvent.closed_by
 ```
 
-The following operational models remain planned for later implementation:
+The following operational models remain planned:
 
 ```text
-DowntimeEvent
 QualityInspection
 AuditEvent
 ```
 
-The current database foundation therefore supports:
+The current database foundation supports:
 
 - authenticated ForgeOps users
 - role-based user groups
@@ -1345,19 +1887,115 @@ The current database foundation therefore supports:
 - Work Order planning
 - Production Run execution
 - incremental Production Entry recording
+- derived ProductionRun quantity totals
+- transactional Downtime Event recording
 - user-level production traceability
-- derived Production Run quantity totals
+- downtime opening and closing traceability
+- derived downtime duration
 - protected manufacturing relationships
 - database-level integrity constraints
 - Django administration
 - automated model testing
-
-The ProductionEntry implementation establishes the quantity-recording foundation required for subsequent ForgeOps operational workflows such as downtime management, quality inspection and audit history.
+- manual synthetic operational verification
 
 ---
 
-# 13. Key Correction From Previous Version
+# 16. FO-008 Current State
 
-The biggest correction from the old version is that `ProductionRun.good_quantity` and `ProductionRun.rejected_quantity` are no longer stored database fields.
+Current issue:
 
-They are now derived from `ProductionEntry`, which is exactly what FO-007 was meant to achieve.
+```text
+FO-008: Create downtime event model
+```
+
+Current feature branch:
+
+```text
+feature/fo-008-downtime-events
+```
+
+Implemented migration:
+
+```text
+0006_downtimeevent
+```
+
+Current verified state:
+
+```text
+Migration applied
+Django system check passing
+No missing migrations detected
+98 core automated tests passing
+DowntimeEvent registered in Django admin
+Synthetic open downtime manually verified
+Duplicate open downtime rejection manually verified
+Synthetic downtime closure manually verified
+Derived duration manually verified
+```
+
+FO-008 does not implement:
+
+- automatic ProductionRun pause
+- automatic ProductionRun resume
+- ProductionRun completion blocking
+- closed-event immutability
+- downtime-specific website workflow outside Django admin
+- dashboard downtime metrics
+- QualityInspection
+- AuditEvent
+
+Those behaviours must only be implemented through future roadmap issues that explicitly define them.
+
+---
+
+# 17. Current Database Architecture Summary
+
+The current implemented core database architecture is:
+
+```text
+Product
+    │
+    ▼
+WorkOrder
+    │
+    ▼
+ProductionRun ◄──── ProductionLine
+    │                    │
+    │                    ▼
+    │              ProductionArea
+    │                    │
+    │                    ▼
+    │                   Site
+    │
+    ├────────────── Shift
+    │
+    ├────────────── ProductionEntry
+    │                     │
+    │                     ▼
+    │                    User
+    │
+    └────────────── DowntimeEvent
+                         │
+                         ├──── DowntimeReason
+                         │
+                         ├──── opened_by User
+                         │
+                         └──── closed_by User
+```
+
+In operational terms:
+
+1. A Product exists in ForgeOps manufacturing reference data.
+2. A WorkOrder defines planned manufacturing demand.
+3. A ProductionRun executes that WorkOrder on a ProductionLine during a Shift.
+4. While the ProductionRun is ACTIVE, Users may record ProductionEntry transactions.
+5. ProductionRun good and rejected totals are derived from ProductionEntry history.
+6. While the ProductionRun is ACTIVE, a User may open a DowntimeEvent.
+7. The DowntimeEvent records a controlled DowntimeReason.
+8. Only one open DowntimeEvent may exist for that ProductionRun at one time.
+9. Closing downtime records an end timestamp and closing User.
+10. Downtime duration is derived from the recorded timestamps.
+11. QualityInspection and AuditEvent remain planned future models.
+
+This is the current database foundation after FO-008.
