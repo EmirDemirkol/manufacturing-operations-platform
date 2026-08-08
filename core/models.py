@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
@@ -122,9 +123,7 @@ class Shift(ActiveTimestampedModel):
         ordering = ["start_time", "name"]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(
-                    start_time=models.F("end_time")
-                ),
+                condition=~models.Q(start_time=models.F("end_time")),
                 name="shift_start_end_different",
             ),
         ]
@@ -258,21 +257,11 @@ class ProductionRun(ActiveTimestampedModel):
         null=True,
         blank=True,
     )
-    good_quantity = models.PositiveIntegerField(default=0)
-    rejected_quantity = models.PositiveIntegerField(default=0)
     notes = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         constraints = [
-            models.CheckConstraint(
-                condition=models.Q(good_quantity__gte=0),
-                name="production_run_good_quantity_nonnegative",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(rejected_quantity__gte=0),
-                name="production_run_rejected_quantity_nonnegative",
-            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(started_at__isnull=True)
@@ -306,8 +295,150 @@ class ProductionRun(ActiveTimestampedModel):
                 }
             )
 
+    def _entry_totals(self):
+        if not self.pk:
+            return {
+                "good": 0,
+                "rejected": 0,
+            }
+
+        totals = self.production_entries.aggregate(
+            good=models.Sum("good_quantity"),
+            rejected=models.Sum("rejected_quantity"),
+        )
+
+        return {
+            "good": totals["good"] or 0,
+            "rejected": totals["rejected"] or 0,
+        }
+
+    @property
+    def good_quantity(self):
+        return self._entry_totals()["good"]
+
+    @property
+    def rejected_quantity(self):
+        return self._entry_totals()["rejected"]
+
+    @property
+    def total_recorded_quantity(self):
+        totals = self._entry_totals()
+        return totals["good"] + totals["rejected"]
+
+    @property
+    def remaining_quantity(self):
+        return max(
+            self.work_order.planned_quantity
+            - self.total_recorded_quantity,
+            0,
+        )
+
+    @property
+    def completion_percentage(self):
+        planned_quantity = self.work_order.planned_quantity
+
+        if planned_quantity <= 0:
+            return 0.0
+
+        return round(
+            (
+                self.total_recorded_quantity
+                / planned_quantity
+            )
+            * 100,
+            2,
+        )
+
+    @property
+    def rejection_rate(self):
+        total = self.total_recorded_quantity
+
+        if total == 0:
+            return 0.0
+
+        return round(
+            (self.rejected_quantity / total) * 100,
+            2,
+        )
+
     def __str__(self):
         return (
             f"{self.work_order.order_number} - "
             f"{self.production_line}"
+        )
+
+
+class ProductionEntry(models.Model):
+    production_run = models.ForeignKey(
+        ProductionRun,
+        on_delete=models.PROTECT,
+        related_name="production_entries",
+    )
+    good_quantity = models.PositiveIntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    rejected_quantity = models.PositiveIntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="production_entries",
+    )
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-recorded_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(good_quantity__gte=0),
+                name="production_entry_good_quantity_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rejected_quantity__gte=0),
+                name="production_entry_rejected_quantity_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(good_quantity__gt=0)
+                    | models.Q(rejected_quantity__gt=0)
+                ),
+                name="production_entry_quantity_required",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.good_quantity == 0
+            and self.rejected_quantity == 0
+        ):
+            raise ValidationError(
+                "A production entry must record at least one "
+                "good or rejected unit."
+            )
+
+        if (
+            self.production_run_id
+            and self.production_run.status
+            != ProductionRun.Status.ACTIVE
+        ):
+            raise ValidationError(
+                {
+                    "production_run": (
+                        "Production entries can only be recorded "
+                        "against an active production run."
+                    )
+                }
+            )
+
+    def __str__(self):
+        return (
+            f"{self.production_run.work_order.order_number} - "
+            f"Good: {self.good_quantity}, "
+            f"Rejected: {self.rejected_quantity}"
         )

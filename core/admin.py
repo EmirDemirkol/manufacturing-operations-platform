@@ -1,9 +1,11 @@
 from django.contrib import admin
+from django.db.models import Sum
 
 from .models import (
     DowntimeReason,
     Product,
     ProductionArea,
+    ProductionEntry,
     ProductionLine,
     ProductionRun,
     Shift,
@@ -35,14 +37,20 @@ class ProductionAreaAdmin(admin.ModelAdmin):
         "is_active",
         "created_at",
     )
-    list_filter = ("site", "is_active")
+    list_filter = (
+        "site",
+        "is_active",
+    )
     search_fields = (
         "code",
         "name",
         "site__code",
         "site__name",
     )
-    ordering = ("site__code", "code")
+    ordering = (
+        "site__code",
+        "code",
+    )
     list_select_related = ("site",)
 
 
@@ -88,7 +96,11 @@ class ProductAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("is_active",)
-    search_fields = ("code", "name", "description")
+    search_fields = (
+        "code",
+        "name",
+        "description",
+    )
     ordering = ("code",)
 
 
@@ -105,7 +117,10 @@ class ShiftAdmin(admin.ModelAdmin):
     )
     list_filter = ("is_active",)
     search_fields = ("name",)
-    ordering = ("start_time", "name")
+    ordering = (
+        "start_time",
+        "name",
+    )
 
     @admin.display(boolean=True, description="Overnight")
     def overnight(self, obj):
@@ -122,7 +137,11 @@ class DowntimeReasonAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("is_active",)
-    search_fields = ("code", "name", "description")
+    search_fields = (
+        "code",
+        "name",
+        "description",
+    )
     ordering = ("code",)
 
 
@@ -164,8 +183,8 @@ class ProductionRunAdmin(admin.ModelAdmin):
         "production_line",
         "shift",
         "status",
-        "good_quantity",
-        "rejected_quantity",
+        "total_good_quantity",
+        "total_rejected_quantity",
         "started_at",
         "ended_at",
         "is_active",
@@ -202,4 +221,74 @@ class ProductionRunAdmin(admin.ModelAdmin):
         "production_line__production_area",
         "production_line__production_area__site",
         "shift",
+    )
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.annotate(
+            admin_good_quantity=Sum(
+                "production_entries__good_quantity"
+            ),
+            admin_rejected_quantity=Sum(
+                "production_entries__rejected_quantity"
+            ),
+        )
+
+    @admin.display(
+        ordering="admin_good_quantity",
+        description="Good quantity",
+    )
+    def total_good_quantity(self, obj):
+        return obj.admin_good_quantity or 0
+
+    @admin.display(
+        ordering="admin_rejected_quantity",
+        description="Rejected quantity",
+    )
+    def total_rejected_quantity(self, obj):
+        return obj.admin_rejected_quantity or 0
+
+
+@admin.register(ProductionEntry)
+class ProductionEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "production_run",
+        "good_quantity",
+        "rejected_quantity",
+        "recorded_by",
+        "recorded_at",
+    )
+    list_filter = (
+        "production_run__status",
+        "production_run__production_line__production_area__site",
+        "production_run__production_line",
+        "recorded_by",
+        "recorded_at",
+    )
+    search_fields = (
+        "production_run__work_order__order_number",
+        "production_run__work_order__product__code",
+        "production_run__work_order__product__name",
+        "production_run__production_line__code",
+        "recorded_by__username",
+        "recorded_by__email",
+        "notes",
+    )
+    ordering = (
+        "-recorded_at",
+        "-id",
+    )
+    autocomplete_fields = (
+        "production_run",
+        "recorded_by",
+    )
+    list_select_related = (
+        "production_run",
+        "production_run__work_order",
+        "production_run__work_order__product",
+        "production_run__production_line",
+        "production_run__production_line__production_area",
+        "production_run__production_line__production_area__site",
+        "production_run__shift",
+        "recorded_by",
     )
