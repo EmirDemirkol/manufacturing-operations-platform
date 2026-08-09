@@ -9,6 +9,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from .models import (
+    AuditEvent,
     DowntimeEvent,
     DowntimeReason,
     Product,
@@ -1755,4 +1756,225 @@ class QualityInspectionModelTests(TestCase):
     def test_quality_inspection_is_registered_in_django_admin(self):
         self.assertTrue(
             admin.site.is_registered(QualityInspection)
+        )
+
+class AuditEventModelTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+
+        self.user = user_model.objects.create_user(
+            username="synthetic_supervisor_audit",
+            password="SyntheticTestPassword123!",
+        )
+
+        self.audit_event = AuditEvent.objects.create(
+            user=self.user,
+            action_type=AuditEvent.ActionType.STARTED,
+            record_type="ProductionRun",
+            record_identifier="WO-2026-0001 / LINE-A01",
+            description="Production run started.",
+        )
+
+    def test_audit_event_can_be_created(self):
+        self.assertEqual(
+            self.audit_event.user,
+            self.user,
+        )
+
+        self.assertEqual(
+            self.audit_event.action_type,
+            AuditEvent.ActionType.STARTED,
+        )
+
+        self.assertEqual(
+            self.audit_event.record_type,
+            "ProductionRun",
+        )
+
+        self.assertEqual(
+            self.audit_event.record_identifier,
+            "WO-2026-0001 / LINE-A01",
+        )
+
+        self.assertEqual(
+            self.audit_event.description,
+            "Production run started.",
+        )
+
+    def test_audit_event_action_choices_are_controlled(self):
+        expected_values = {
+            "CREATED",
+            "UPDATED",
+            "ASSIGNED",
+            "STARTED",
+            "COMPLETED",
+            "CANCELLED",
+            "OPENED",
+            "CLOSED",
+            "CORRECTED",
+        }
+
+        actual_values = {
+            value
+            for value, label
+            in AuditEvent.ActionType.choices
+        }
+
+        self.assertSetEqual(
+            actual_values,
+            expected_values,
+        )
+
+    def test_invalid_action_type_is_rejected_by_model_validation(self):
+        audit_event = AuditEvent(
+            user=self.user,
+            action_type="INVALID",
+            record_type="ProductionRun",
+            record_identifier="WO-2026-0002 / LINE-A01",
+            description="Synthetic invalid audit event.",
+        )
+
+        with self.assertRaises(ValidationError):
+            audit_event.full_clean()
+
+    def test_record_type_is_required(self):
+        audit_event = AuditEvent(
+            user=self.user,
+            action_type=AuditEvent.ActionType.CREATED,
+            record_type="",
+            record_identifier="WO-2026-0002",
+            description="Synthetic audit event.",
+        )
+
+        with self.assertRaises(ValidationError):
+            audit_event.full_clean()
+
+    def test_record_identifier_is_required(self):
+        audit_event = AuditEvent(
+            user=self.user,
+            action_type=AuditEvent.ActionType.CREATED,
+            record_type="WorkOrder",
+            record_identifier="",
+            description="Synthetic audit event.",
+        )
+
+        with self.assertRaises(ValidationError):
+            audit_event.full_clean()
+
+    def test_description_is_required(self):
+        audit_event = AuditEvent(
+            user=self.user,
+            action_type=AuditEvent.ActionType.CREATED,
+            record_type="WorkOrder",
+            record_identifier="WO-2026-0002",
+            description="",
+        )
+
+        with self.assertRaises(ValidationError):
+            audit_event.full_clean()
+
+    def test_created_at_is_generated_automatically(self):
+        self.assertIsNotNone(
+            self.audit_event.created_at
+        )
+
+    def test_user_cannot_be_deleted_while_audit_event_exists(self):
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
+
+    def test_user_reverse_relationship_is_created(self):
+        self.assertIn(
+            self.audit_event,
+            self.user.audit_events.all(),
+        )
+
+    def test_audit_events_are_ordered_newest_first(self):
+        older_event = self.audit_event
+
+        newer_event = AuditEvent.objects.create(
+            user=self.user,
+            action_type=AuditEvent.ActionType.COMPLETED,
+            record_type="ProductionRun",
+            record_identifier="WO-2026-0001 / LINE-A01",
+            description="Production run completed.",
+        )
+
+        events = list(
+            AuditEvent.objects.all()
+        )
+
+        self.assertEqual(
+            events[0],
+            newer_event,
+        )
+
+        self.assertEqual(
+            events[1],
+            older_event,
+        )
+
+    def test_audit_event_string_representation_is_readable(self):
+        representation = str(self.audit_event)
+
+        self.assertIn(
+            "Started",
+            representation,
+        )
+
+        self.assertIn(
+            "ProductionRun",
+            representation,
+        )
+
+        self.assertIn(
+            "WO-2026-0001 / LINE-A01",
+            representation,
+        )
+
+    def test_audit_event_is_registered_in_django_admin(self):
+        self.assertTrue(
+            admin.site.is_registered(AuditEvent)
+        )
+
+    def test_existing_audit_event_fields_are_read_only_in_admin(self):
+        audit_admin = admin.site._registry[AuditEvent]
+
+        readonly_fields = audit_admin.get_readonly_fields(
+            request=None,
+            obj=self.audit_event,
+        )
+
+        self.assertEqual(
+            set(readonly_fields),
+            {
+                "user",
+                "action_type",
+                "record_type",
+                "record_identifier",
+                "description",
+                "created_at",
+            },
+        )
+
+    def test_new_audit_event_can_be_entered_through_admin(self):
+        audit_admin = admin.site._registry[AuditEvent]
+
+        readonly_fields = audit_admin.get_readonly_fields(
+            request=None,
+            obj=None,
+        )
+
+        self.assertEqual(
+            readonly_fields,
+            ("created_at",),
+        )
+
+    def test_audit_event_cannot_be_deleted_through_admin(self):
+        audit_admin = admin.site._registry[AuditEvent]
+
+        self.assertFalse(
+            audit_admin.has_delete_permission(
+                request=None,
+                obj=self.audit_event,
+            )
         )

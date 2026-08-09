@@ -51,6 +51,7 @@ Current examples include:
 - `DowntimeEvent.opened_by`
 - `DowntimeEvent.closed_by`
 - `QualityInspection.completed_by`
+- `AuditEvent.user`
 
 ---
 
@@ -776,13 +777,13 @@ All records used for this verification were synthetic.
 
 ---
 
-## Planned AuditEvent
+## AuditEvent
 
-This model is part of the planned ForgeOps architecture and has not yet been implemented.
+An Audit Event represents one important action recorded in ForgeOps for operational traceability.
 
-An Audit Event represents an important action performed in ForgeOps.
+AuditEvent was implemented as part of FO-010.
 
-### Planned Attributes
+### Attributes
 
 - ID
 - User
@@ -790,32 +791,158 @@ An Audit Event represents an important action performed in ForgeOps.
 - Record type
 - Record identifier
 - Description
-- Event date and time
+- Created date and time
 
-### Example Planned Action Types
+### Relationships
 
 ```text
-Created
-Updated
-Assigned
-Started
-Completed
-Cancelled
-Opened
-Closed
-Corrected
+AuditEvent.user -> User
 ```
 
-### Planned Principles
+The User relationship uses protected deletion so that a User referenced by an AuditEvent cannot be deleted while that event exists.
 
-- Audit Events should be created automatically.
-- Audit Events should not be editable through normal application workflows.
-- Audit Events should not be deletable through normal application workflows.
-- An Audit Event may identify an affected record using record type and record identifier rather than requiring a direct foreign key to every possible model.
+The affected ForgeOps record is identified using `record_type` and `record_identifier` rather than a direct foreign key to every possible auditable model.
 
-ForgeOps audit history is an educational traceability feature and must not be represented as a validated regulatory audit trail.
+### Action Type Values
 
-The exact AuditEvent implementation must be decided by its future GitHub issue.
+```text
+CREATED
+UPDATED
+ASSIGNED
+STARTED
+COMPLETED
+CANCELLED
+OPENED
+CLOSED
+CORRECTED
+```
+
+### Rules
+
+- Each AuditEvent records exactly one User.
+- `action_type` is limited to the controlled values defined by `AuditEvent.ActionType`.
+- `record_type` is required.
+- `record_identifier` is required.
+- `description` is required.
+- `created_at` is generated automatically.
+- AuditEvent records are ordered newest first by `created_at`, then by ID.
+- Existing AuditEvent records are read-only through normal Django administration.
+- AuditEvent deletion is disabled through normal Django administration.
+- The User referenced by an AuditEvent is protected from deletion.
+- FO-010 does not require a direct foreign key from AuditEvent to every possible affected model.
+- FO-010 does not automatically create AuditEvent records for every existing ForgeOps action.
+- Automatic creation is intended to be added deliberately by future application workflows where explicitly defined and tested.
+
+ForgeOps audit history is an educational operational traceability feature and must not be represented as a validated regulatory audit trail.
+
+### Example
+
+```text
+User: admin
+Action Type: STARTED
+Record Type: ProductionRun
+Record Identifier: WO-2026-0001 / LINE-A01
+Description: Production run started.
+Created At: automatically generated
+```
+
+The example is synthetic.
+
+### Django Administration
+
+AuditEvent is registered in Django administration.
+
+The current administrative list displays:
+
+- Created at
+- User
+- Action type
+- Record type
+- Record identifier
+- Description
+
+The administration configuration also provides:
+
+- action-type filtering
+- record-type filtering
+- User filtering
+- created-at filtering
+- search across User, record type, record identifier and description
+- User autocomplete
+- related-User query optimisation
+
+New synthetic AuditEvent records may be entered through Django administration for development verification.
+
+After an AuditEvent exists, its User, action type, record type, record identifier, description and created timestamp are read-only through normal Django administration.
+
+Normal Django administration does not provide AuditEvent deletion permission.
+
+### Manual FO-010 Verification
+
+FO-010 was manually exercised using synthetic records through Django administration.
+
+The manual verification demonstrated that:
+
+1. AuditEvent appears in Django administration.
+2. A synthetic `STARTED` AuditEvent can be created.
+3. The event records the responsible User.
+4. The event records `ProductionRun` as its record type.
+5. The event records `WO-2026-0001 / LINE-A01` as its record identifier.
+6. The description is stored.
+7. `created_at` is generated automatically.
+8. Reopening the saved AuditEvent shows all event fields as read-only.
+9. No Delete button is available for the saved AuditEvent.
+
+All records used for this verification were synthetic.
+
+### Implemented Migration
+
+AuditEvent is introduced through:
+
+```text
+0008_auditevent
+```
+
+The migration:
+
+- creates AuditEvent
+- links AuditEvent to Django User using protected deletion
+- adds the controlled `action_type` field
+- adds `record_type`
+- adds `record_identifier`
+- adds `description`
+- adds the automatically generated `created_at` timestamp
+- applies newest-first model ordering
+
+The migration depends on:
+
+```text
+0007_qualityinspection
+```
+
+and Django's swappable User model dependency.
+
+### Automated Validation
+
+FO-010 automated tests verify:
+
+- AuditEvent creation
+- the controlled action-type set
+- rejection of an invalid action type through model validation
+- required description
+- required record type
+- required record identifier
+- automatic `created_at`
+- User deletion protection
+- User reverse relationship
+- newest-first ordering
+- readable string representation
+- Django admin registration
+- read-only existing AuditEvent fields in Django administration
+- ability to enter a new synthetic AuditEvent through Django administration
+- prevention of AuditEvent deletion through Django administration
+
+All FO-010 tests use synthetic data.
 
 ---
 
@@ -886,11 +1013,13 @@ One Production Run can currently have many:
 - ProductionRun Quality Inspections are available through `quality_inspections`.
 - Completed User relationships are available through `completed_quality_inspections`.
 
-## Planned Audit Relationships
+## Audit Relationships
 
-- One User may generate many Audit Events.
-- Each Audit Event may record one action performed by one User.
-- Audit Events may identify affected records using record type and record identifier.
+- One User may be referenced by many Audit Events.
+- Each Audit Event records exactly one User.
+- User Audit Events are available through the `audit_events` reverse relationship.
+- Each Audit Event identifies an affected record using `record_type` and `record_identifier`.
+- AuditEvent does not require a direct foreign key to every possible affected model.
 
 ---
 
@@ -917,10 +1046,11 @@ User
 ├── ProductionEntry
 ├── DowntimeEvent.opened_by
 ├── DowntimeEvent.closed_by
-└── QualityInspection.completed_by
+├── QualityInspection.completed_by
+└── AuditEvent.user
 ```
 
-AuditEvent remains a planned future relationship.
+AuditEvent identifies its affected ForgeOps record through `record_type` and `record_identifier` rather than a direct foreign key to every operational model.
 
 ---
 
@@ -1010,6 +1140,20 @@ AuditEvent remains a planned future relationship.
 - Completed User references use protected deletion.
 - Notes are optional.
 - Created and updated timestamps are generated automatically.
+
+## AuditEvent
+
+- Each AuditEvent records exactly one User.
+- AuditEvent User references use protected deletion.
+- Action type values are limited to `CREATED`, `UPDATED`, `ASSIGNED`, `STARTED`, `COMPLETED`, `CANCELLED`, `OPENED`, `CLOSED` and `CORRECTED`.
+- `record_type` is required.
+- `record_identifier` is required.
+- `description` is required.
+- `created_at` is generated automatically.
+- Existing AuditEvent records are read-only through normal Django administration.
+- AuditEvent deletion is disabled through normal Django administration.
+- Affected records are identified using record type and record identifier rather than a direct foreign key to every model.
+- FO-010 does not automatically log every existing ForgeOps action.
 
 ## General Integrity
 
@@ -1187,6 +1331,13 @@ The following decisions have already been resolved:
 - One Production Run may contain multiple Quality Inspections.
 - Quality Inspection completion Users are traceable.
 - FO-009 does not define ProductionRun completion requirements.
+- Audit Events record exactly one responsible User.
+- Audit Event action types are controlled by the FO-010 action set.
+- Audit Events identify affected records using record type and record identifier.
+- Audit Event timestamps are generated automatically.
+- Existing AuditEvent records are read-only through normal Django administration.
+- AuditEvent deletion is disabled through normal Django administration.
+- FO-010 does not automatically log every existing ForgeOps action.
 
 ---
 
@@ -2189,9 +2340,10 @@ The current ForgeOps core migration sequence is:
 0005_create_production_entries
 0006_downtimeevent
 0007_qualityinspection
+0008_auditevent
 ```
 
-All seven migrations are currently applied in the local SQLite development database.
+All eight migrations are currently applied in the local SQLite development database.
 
 ---
 
@@ -2200,7 +2352,7 @@ All seven migrations are currently applied in the local SQLite development datab
 The current full core test milestone is:
 
 ```text
-Ran 118 tests
+Ran 133 tests
 OK
 ```
 
@@ -2212,9 +2364,10 @@ FO-006: 58 tests
 FO-007: 77 tests
 FO-008: 98 tests
 FO-009: 118 tests
+FO-010: 133 tests
 ```
 
-FO-009 adds QualityInspection coverage without replacing or removing the existing FO-008 test baseline.
+FO-010 adds 15 AuditEvent tests while preserving the existing 118-test FO-009 baseline.
 
 ---
 
@@ -2236,6 +2389,7 @@ ProductionRun
 ProductionEntry
 DowntimeEvent
 QualityInspection
+AuditEvent
 ```
 
 The current implemented operational structure is:
@@ -2263,14 +2417,11 @@ User
 ├── ProductionEntry
 ├── DowntimeEvent.opened_by
 ├── DowntimeEvent.closed_by
-└── QualityInspection.completed_by
+├── QualityInspection.completed_by
+└── AuditEvent.user
 ```
 
-The following operational model remains planned:
-
-```text
-AuditEvent
-```
+AuditEvent identifies affected ForgeOps records through `record_type` and `record_identifier` rather than direct foreign keys to each operational model.
 
 The current database foundation supports:
 
@@ -2291,6 +2442,12 @@ The current database foundation supports:
 - PENDING, PASSED and FAILED inspection states
 - quality completion User traceability
 - quality completion timestamp traceability
+- AuditEvent operational traceability records
+- controlled AuditEvent action types
+- AuditEvent User traceability
+- indirect affected-record identification using record type and record identifier
+- read-only existing AuditEvent records in Django administration
+- prevention of AuditEvent deletion through normal Django administration
 - user-level production traceability
 - downtime opening and closing traceability
 - derived downtime duration
@@ -2302,30 +2459,30 @@ The current database foundation supports:
 
 ---
 
-# 17. FO-009 Current State
+# 17. FO-010 Current State
 
 Current issue:
 
 ```text
-FO-009: Create quality inspection model
+FO-010: Create audit event model
 ```
 
 GitHub issue:
 
 ```text
-#17
+#19
 ```
 
 Current feature branch:
 
 ```text
-feature/fo-009-quality-inspections
+feature/fo-010-audit-events
 ```
 
 Implemented migration:
 
 ```text
-0007_qualityinspection
+0008_auditevent
 ```
 
 Current verified state:
@@ -2333,33 +2490,33 @@ Current verified state:
 ```text
 Migration applied
 Django system check passing
-QualityInspection registered in Django admin
-Synthetic PENDING inspection manually verified
-Invalid PASSED inspection manually rejected
-Synthetic PASSED inspection manually verified
-Synthetic FAILED inspection manually verified
-Completion User traceability manually verified
-Completion timestamp traceability manually verified
-118 core automated tests passing
+AuditEvent registered in Django admin
+Synthetic STARTED AuditEvent manually created
+Responsible User manually verified
+Record type and record identifier manually verified
+Automatic created timestamp manually verified
+Existing AuditEvent fields manually verified as read-only
+AuditEvent delete option manually verified as unavailable
+15 FO-010 AuditEvent tests passing
+133 core automated tests passing
 ```
 
-FO-009 does not implement:
+FO-010 does not implement:
 
-- QualityInspection website workflow
-- quality dashboard metrics
-- ProductionRun completion blocking
-- a required number of inspections before ProductionRun completion
-- automatic ProductionRun status changes
-- automatic actions when an inspection fails
-- quality approval workflow
-- quality rejection workflow
-- inspection plans
-- sampling plans
-- defect records
-- defect categories
-- deviations
-- corrective actions
-- AuditEvent
+- a validated regulatory audit trail
+- electronic signatures
+- 21 CFR Part 11 compliance
+- automatic logging of every Django model change
+- automatic AuditEvent creation for every existing ForgeOps action
+- machine-generated audit records
+- REST API audit logging
+- SIEM integration
+- audit export workflows
+- audit dashboards
+- audit retention or archival workflows
+- ProductionRun workflow changes
+- QualityInspection workflow changes
+- DowntimeEvent workflow changes
 - machine integration
 - real manufacturing data
 
@@ -2404,7 +2561,15 @@ ProductionRun ◄──── ProductionLine
     └────────────── QualityInspection
                           │
                           └──── completed_by User
+
+User
+└────────────── AuditEvent
+                    ├──── action_type
+                    ├──── record_type
+                    └──── record_identifier
 ```
+
+AuditEvent identifies an affected ForgeOps record using `record_type` and `record_identifier`; it does not require a direct foreign key to every operational model.
 
 In operational terms:
 
@@ -2424,6 +2589,12 @@ In operational terms:
 14. PASSED and FAILED Quality Inspections require both a completion User and completion timestamp.
 15. QualityInspection completion state is protected by model validation and a database constraint.
 16. QualityInspection completion requirements do not currently affect ProductionRun completion.
-17. AuditEvent remains a planned future model.
+17. AuditEvent records important ForgeOps actions together with the responsible User.
+18. AuditEvent action types use the controlled FO-010 action set.
+19. AuditEvent identifies the affected record using record type and record identifier.
+20. AuditEvent creation timestamps are generated automatically.
+21. Existing AuditEvent records are read-only through normal Django administration.
+22. AuditEvent deletion is disabled through normal Django administration.
+23. FO-010 does not automatically generate AuditEvent records for every existing ForgeOps action.
 
-This is the current database foundation after FO-009.
+This is the current database foundation after FO-010.

@@ -662,3 +662,40 @@ class QualityInspection(models.Model):
             f"{self.production_run.work_order.order_number} - "
             f"{self.get_result_display()}"
         )
+
+
+class AuditEvent(models.Model):
+    class ActionType(models.TextChoices):
+        CREATED = "CREATED", "Created"
+        UPDATED = "UPDATED", "Updated"
+        ASSIGNED = "ASSIGNED", "Assigned"
+        STARTED = "STARTED", "Started"
+        COMPLETED = "COMPLETED", "Completed"
+        CANCELLED = "CANCELLED", "Cancelled"
+        OPENED = "OPENED", "Opened"
+        CLOSED = "CLOSED", "Closed"
+        CORRECTED = "CORRECTED", "Corrected"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="audit_events",
+    )
+    action_type = models.CharField(
+        max_length=20,
+        choices=ActionType.choices,
+    )
+    record_type = models.CharField(max_length=100)
+    record_identifier = models.CharField(max_length=255)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return (
+            f"{self.get_action_type_display()} - "
+            f"{self.record_type} - "
+            f"{self.record_identifier}"
+        )

@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.db.models import Sum
 
 from .models import (
+    AuditEvent,
     DowntimeEvent,
     DowntimeReason,
     Product,
@@ -416,3 +417,50 @@ class QualityInspectionAdmin(admin.ModelAdmin):
         "production_run__production_line__production_area__site",
         "completed_by",
     )
+
+
+@admin.register(AuditEvent)
+class AuditEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at",
+        "user",
+        "action_type",
+        "record_type",
+        "record_identifier",
+        "description",
+    )
+    list_filter = (
+        "action_type",
+        "record_type",
+        "user",
+        "created_at",
+    )
+    search_fields = (
+        "user__username",
+        "user__email",
+        "record_type",
+        "record_identifier",
+        "description",
+    )
+    ordering = (
+        "-created_at",
+        "-id",
+    )
+    autocomplete_fields = ("user",)
+    list_select_related = ("user",)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return ("created_at",)
+
+        return (
+            "user",
+            "action_type",
+            "record_type",
+            "record_identifier",
+            "description",
+            "created_at",
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        return False
