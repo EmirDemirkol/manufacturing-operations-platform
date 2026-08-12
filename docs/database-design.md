@@ -2352,7 +2352,7 @@ All eight migrations are currently applied in the local SQLite development datab
 The current full core test milestone is:
 
 ```text
-Ran 133 tests
+Ran 147 tests
 OK
 ```
 
@@ -2365,9 +2365,12 @@ FO-007: 77 tests
 FO-008: 98 tests
 FO-009: 118 tests
 FO-010: 133 tests
+FO-011: 147 tests
 ```
 
-FO-010 adds 15 AuditEvent tests while preserving the existing 118-test FO-009 baseline.
+FO-010 added 15 AuditEvent tests while preserving the existing 118-test FO-009 baseline.
+
+FO-011 adds 14 WorkOrder interface tests while preserving the existing 133-test FO-010 baseline.
 
 ---
 
@@ -2457,11 +2460,26 @@ The current database foundation supports:
 - automated model testing
 - manual synthetic operational verification
 
+The current ForgeOps application layer additionally supports:
+
+- WorkOrder list interface
+- WorkOrder detail interface
+- WorkOrder creation interface
+- authenticated WorkOrder access
+- role-controlled WorkOrder creation
+- WorkOrder status filtering
+- WorkOrder Product filtering
+- combined WorkOrder filtering
+- clearing WorkOrder filters
+- active Product selection during WorkOrder creation
+- display of related ProductionRuns from a WorkOrder detail page
+- server-side prevention of unauthorised WorkOrder creation
+
 ---
 
 # 17. FO-010 Current State
 
-Current issue:
+Issue:
 
 ```text
 FO-010: Create audit event model
@@ -2473,19 +2491,13 @@ GitHub issue:
 #19
 ```
 
-Current feature branch:
-
-```text
-feature/fo-010-audit-events
-```
-
 Implemented migration:
 
 ```text
 0008_auditevent
 ```
 
-Current verified state:
+Verified state:
 
 ```text
 Migration applied
@@ -2524,7 +2536,385 @@ Those behaviours must only be implemented through future roadmap issues that exp
 
 ---
 
-# 18. Current Database Architecture Summary
+# 18. FO-011 Current State
+
+Issue:
+
+```text
+FO-011: Build work order management interface
+```
+
+GitHub issue:
+
+```text
+#21
+```
+
+Feature branch:
+
+```text
+feature/fo-011-work-order-interface
+```
+
+FO-011 introduces the first dedicated WorkOrder management workflow in the ForgeOps website.
+
+The existing WorkOrder database model remains unchanged.
+
+FO-011 does not introduce a database migration.
+
+## Implemented WorkOrder Interface
+
+FO-011 implements:
+
+- WorkOrder list page
+- WorkOrder detail page
+- WorkOrder creation page
+- authenticated access to WorkOrder pages
+- role-controlled WorkOrder creation
+- WorkOrder status filtering
+- WorkOrder Product filtering
+- combined filtering
+- clear-filter behaviour
+- WorkOrder form validation
+- active Product selection during WorkOrder creation
+- related ProductionRun display on the WorkOrder detail page
+
+## WorkOrder List
+
+The WorkOrder list is available at:
+
+```text
+/work-orders/
+```
+
+The list displays:
+
+- WorkOrder number
+- Product
+- planned quantity
+- status
+- due date
+- creation timestamp
+
+Each WorkOrder number links to its detail page.
+
+## WorkOrder Filtering
+
+The WorkOrder list supports filtering by:
+
+- status
+- Product
+
+Filtering uses GET query parameters.
+
+Example:
+
+```text
+/work-orders/?status=DRAFT&product=1
+```
+
+Status and Product filters can be used individually or together.
+
+The Clear action removes the active filters and restores the complete WorkOrder list.
+
+Manual verification demonstrated:
+
+```text
+Status: DRAFT
+Product: PRD-1001
+Result: WO-2026-0002
+```
+
+The existing RELEASED WorkOrder was excluded from that filtered result.
+
+Clearing the filters restored both synthetic WorkOrders.
+
+## WorkOrder Detail
+
+The WorkOrder detail page displays:
+
+- WorkOrder number
+- Product
+- planned quantity
+- status
+- due date
+- active state
+- creation timestamp
+- update timestamp
+- notes
+- related ProductionRuns
+
+If no ProductionRuns currently belong to the WorkOrder, the interface displays that no Production Runs are linked to the Work Order.
+
+FO-011 does not create, assign, start, pause or complete ProductionRuns.
+
+## WorkOrder Creation
+
+The WorkOrder creation page is available at:
+
+```text
+/work-orders/new/
+```
+
+The creation workflow uses a Django ModelForm based on the existing WorkOrder model.
+
+The form supports:
+
+- WorkOrder number
+- Product
+- planned quantity
+- status
+- due date
+- notes
+
+Only active Product records are available for selection.
+
+Inactive Product records are excluded from the Product selection queryset.
+
+A successfully created WorkOrder redirects to its WorkOrder detail page.
+
+## WorkOrder Creation Permissions
+
+WorkOrder creation is permitted by the FO-011 permission logic for:
+
+```text
+Production Supervisor
+System Administrator
+Django superuser
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+FO-011 does not introduce a second permission system.
+
+Operators may view the WorkOrder list but cannot create WorkOrders.
+
+The Create Work Order action is hidden from Operators.
+
+Direct unauthorised access to:
+
+```text
+/work-orders/new/
+```
+
+returns:
+
+```text
+403 Forbidden
+```
+
+This prevents an unauthorised User from bypassing the interface by manually entering the creation URL.
+
+## Validation
+
+FO-011 reuses existing WorkOrder model and form validation.
+
+Manual verification confirmed that a valid synthetic WorkOrder can be created.
+
+Example:
+
+```text
+Work Order: WO-2026-0002
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Planned Quantity: 500
+Status: DRAFT
+Due Date: 20 August 2026
+Notes: Synthetic FO-011 Work Order interface verification.
+```
+
+The resulting WorkOrder appeared in the WorkOrder list and detail interface.
+
+FO-011 also manually verified invalid form behaviour.
+
+### Duplicate WorkOrder Number
+
+A duplicate WorkOrder number was submitted:
+
+```text
+WO-2026-0002
+```
+
+The form rejected the duplicate because WorkOrder numbers must remain globally unique.
+
+### Invalid Planned Quantity
+
+The following quantity was submitted:
+
+```text
+planned_quantity = 0
+```
+
+The form rejected the value because planned quantity must be greater than zero.
+
+## Manual FO-011 Verification
+
+FO-011 was manually exercised through the ForgeOps website using synthetic manufacturing data.
+
+The manual verification demonstrated that:
+
+1. The WorkOrder list page loads successfully.
+2. Existing synthetic WorkOrders are displayed.
+3. WorkOrder numbers link to WorkOrder detail pages.
+4. WorkOrder detail information is displayed correctly.
+5. Related ProductionRuns are displayed from the WorkOrder detail workflow.
+6. A new synthetic WorkOrder can be created successfully.
+7. Successful creation redirects to the new WorkOrder detail page.
+8. Duplicate WorkOrder numbers are rejected.
+9. Planned quantity of zero is rejected.
+10. Django superuser can create WorkOrders.
+11. Production Supervisor can access the WorkOrder creation workflow.
+12. Operator can access the WorkOrder list.
+13. Operator does not receive the Create Work Order action.
+14. Operator direct access to the creation URL returns 403 Forbidden.
+15. Status filtering works.
+16. Product filtering works.
+17. Status and Product filtering can be combined.
+18. Clearing filters restores the full WorkOrder list.
+
+All records used for manual FO-011 verification were synthetic.
+
+## Automated FO-011 Validation
+
+FO-011 adds automated WorkOrder interface tests in:
+
+```text
+core/tests.py
+```
+
+The dedicated FO-011 test class is:
+
+```text
+WorkOrderInterfaceTests
+```
+
+The dedicated test run produced:
+
+```text
+Found 14 test(s)
+Ran 14 tests
+OK
+```
+
+FO-011 automated tests verify:
+
+- WorkOrder list requires authentication
+- authenticated Operator can view the WorkOrder list
+- WorkOrder detail page displays WorkOrder information
+- Production Supervisor can access the WorkOrder creation page
+- Operator cannot access the WorkOrder creation page
+- Operator does not see the Create Work Order action
+- Production Supervisor can create a valid WorkOrder
+- duplicate WorkOrder number is rejected
+- zero planned quantity is rejected
+- Product is required
+- invalid WorkOrder status is rejected
+- WorkOrder list can filter by status
+- WorkOrder list can filter by Product
+- inactive Products are excluded from the creation form
+
+The full Core test suite after FO-011 is:
+
+```text
+Ran 147 tests
+OK
+```
+
+FO-011 therefore adds 14 WorkOrder interface tests while preserving the existing 133-test FO-010 baseline.
+
+## Migration Verification
+
+FO-011 does not modify the database schema.
+
+Verification produced:
+
+```text
+python manage.py makemigrations --check --dry-run
+No changes detected
+```
+
+No FO-011 migration is required.
+
+The current migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+## FO-011 Files Added
+
+```text
+core/forms.py
+core/templates/core/work_order_list.html
+core/templates/core/work_order_detail.html
+core/templates/core/work_order_form.html
+```
+
+## FO-011 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+docs/database-design.md
+```
+
+## FO-011 Does Not Implement
+
+FO-011 does not implement:
+
+- WorkOrder editing
+- WorkOrder deletion
+- ProductionRun creation from the WorkOrder interface
+- ProductionRun assignment
+- ProductionRun start workflow
+- ProductionRun pause workflow
+- ProductionRun completion workflow
+- Operator assignment
+- ProductionEntry website workflow
+- downtime website workflow
+- QualityInspection website workflow
+- automatic AuditEvent creation for WorkOrder actions
+- dashboard analytics
+- REST API endpoints
+- machine integration
+- real manufacturing data
+
+These behaviours must only be implemented through future roadmap issues that explicitly define them.
+
+## FO-011 Verified State
+
+```text
+Issue #21
+FO-011: Build work order management interface
+WorkOrder list implemented
+WorkOrder detail implemented
+WorkOrder creation implemented
+WorkOrder status filtering implemented
+WorkOrder Product filtering implemented
+Combined filtering implemented
+Clear-filter behaviour implemented
+Production Supervisor creation permission implemented
+System Administrator creation permission implemented in permission logic
+Django superuser creation permission implemented
+Operator WorkOrder read access implemented
+Operator creation access blocked
+Inactive Products excluded from creation form
+Manual synthetic verification completed
+14 FO-011 WorkOrder interface tests passing
+147 core automated tests passing
+No database migration required
+```
+
+---
+
+# 19. Current Database and Application Architecture Summary
 
 The current implemented core database architecture is:
 
@@ -2571,30 +2961,99 @@ User
 
 AuditEvent identifies an affected ForgeOps record using `record_type` and `record_identifier`; it does not require a direct foreign key to every operational model.
 
+The WorkOrder application workflow now sits above the existing WorkOrder model:
+
+```text
+Authenticated User
+        │
+        ▼
+WorkOrder List
+        │
+        ├──── Status Filter
+        │
+        ├──── Product Filter
+        │
+        └──── WorkOrder Detail
+                 │
+                 └──── Related ProductionRuns
+
+Production Supervisor
+System Administrator
+Django Superuser
+        │
+        ▼
+Create WorkOrder
+        │
+        ▼
+WorkOrder Validation
+        │
+        ▼
+WorkOrder Detail
+```
+
+Operators may follow:
+
+```text
+Operator
+   │
+   ▼
+WorkOrder List
+   │
+   ▼
+WorkOrder Detail
+```
+
+but cannot follow:
+
+```text
+Operator
+   │
+   X
+Create WorkOrder
+```
+
+Unauthorised direct creation access returns:
+
+```text
+403 Forbidden
+```
+
 In operational terms:
 
 1. A Product exists in ForgeOps manufacturing reference data.
 2. A WorkOrder defines planned manufacturing demand.
-3. A ProductionRun executes that WorkOrder on a ProductionLine during a Shift.
-4. While the ProductionRun is ACTIVE, Users may record ProductionEntry transactions.
-5. ProductionRun good and rejected totals are derived from ProductionEntry history.
-6. While the ProductionRun is ACTIVE, a User may open a DowntimeEvent.
-7. The DowntimeEvent records a controlled DowntimeReason.
-8. Only one open DowntimeEvent may exist for that ProductionRun at one time.
-9. Closing downtime records an end timestamp and closing User.
-10. Downtime duration is derived from the recorded timestamps.
-11. A ProductionRun may contain multiple QualityInspection records.
-12. New QualityInspection records default to PENDING.
-13. PENDING Quality Inspections contain no completion User or completion timestamp.
-14. PASSED and FAILED Quality Inspections require both a completion User and completion timestamp.
-15. QualityInspection completion state is protected by model validation and a database constraint.
-16. QualityInspection completion requirements do not currently affect ProductionRun completion.
-17. AuditEvent records important ForgeOps actions together with the responsible User.
-18. AuditEvent action types use the controlled FO-010 action set.
-19. AuditEvent identifies the affected record using record type and record identifier.
-20. AuditEvent creation timestamps are generated automatically.
-21. Existing AuditEvent records are read-only through normal Django administration.
-22. AuditEvent deletion is disabled through normal Django administration.
-23. FO-010 does not automatically generate AuditEvent records for every existing ForgeOps action.
+3. Authenticated ForgeOps Users may inspect WorkOrders through the WorkOrder list.
+4. WorkOrders may be filtered by status.
+5. WorkOrders may be filtered by Product.
+6. Status and Product filters may be combined.
+7. Production Supervisors, System Administrators and Django superusers may create WorkOrders according to FO-011 permission logic.
+8. Operators may inspect WorkOrders but cannot create them.
+9. New WorkOrders may reference only active Products through the FO-011 creation form.
+10. WorkOrder creation continues to use existing WorkOrder validation and integrity rules.
+11. A WorkOrder detail page exposes its related ProductionRuns.
+12. A ProductionRun executes a WorkOrder on a ProductionLine during a Shift.
+13. While the ProductionRun is ACTIVE, Users may record ProductionEntry transactions.
+14. ProductionRun good and rejected totals are derived from ProductionEntry history.
+15. While the ProductionRun is ACTIVE, a User may open a DowntimeEvent.
+16. The DowntimeEvent records a controlled DowntimeReason.
+17. Only one open DowntimeEvent may exist for that ProductionRun at one time.
+18. Closing downtime records an end timestamp and closing User.
+19. Downtime duration is derived from the recorded timestamps.
+20. A ProductionRun may contain multiple QualityInspection records.
+21. New QualityInspection records default to PENDING.
+22. PENDING Quality Inspections contain no completion User or completion timestamp.
+23. PASSED and FAILED Quality Inspections require both a completion User and completion timestamp.
+24. QualityInspection completion state is protected by model validation and a database constraint.
+25. QualityInspection completion requirements do not currently affect ProductionRun completion.
+26. AuditEvent records important ForgeOps actions together with the responsible User.
+27. AuditEvent action types use the controlled FO-010 action set.
+28. AuditEvent identifies the affected record using record type and record identifier.
+29. AuditEvent creation timestamps are generated automatically.
+30. Existing AuditEvent records are read-only through normal Django administration.
+31. AuditEvent deletion is disabled through normal Django administration.
+32. FO-010 does not automatically generate AuditEvent records for every existing ForgeOps action.
+33. FO-011 does not automatically create AuditEvent records for WorkOrder website actions.
+34. FO-011 does not introduce ProductionRun workflow changes.
+35. FO-011 does not modify the existing database schema.
 
-This is the current database foundation after FO-010.
+This is the current ForgeOps database and application foundation after FO-011.
