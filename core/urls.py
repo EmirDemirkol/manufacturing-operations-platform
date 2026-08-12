@@ -5,7 +5,6 @@ from . import views
 
 urlpatterns = [
     path("", views.dashboard_router, name="dashboard-router"),
-
     path(
         "operator/",
         views.role_dashboard,
@@ -41,5 +40,20 @@ urlpatterns = [
         views.role_dashboard,
         {"role_name": "System Administrator"},
         name="system-administrator-dashboard",
+    ),
+    path(
+        "work-orders/",
+        views.work_order_list,
+        name="work-order-list",
+    ),
+    path(
+        "work-orders/new/",
+        views.work_order_create,
+        name="work-order-create",
+    ),
+    path(
+        "work-orders/<int:pk>/",
+        views.work_order_detail,
+        name="work-order-detail",
     ),
 ]
