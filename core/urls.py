@@ -56,4 +56,19 @@ urlpatterns = [
         views.work_order_detail,
         name="work-order-detail",
     ),
+    path(
+        "production-runs/",
+        views.production_run_list,
+        name="production-run-list",
+    ),
+    path(
+        "production-runs/<int:pk>/",
+        views.production_run_detail,
+        name="production-run-detail",
+    ),
+    path(
+        "work-orders/<int:work_order_pk>/production-runs/new/",
+        views.production_run_create,
+        name="production-run-create",
+    ),
 ]

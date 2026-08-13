@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Create Production Run | ForgeOps</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #071019;
+            color: #eef5f8;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 32px;
+            border-bottom: 1px solid #263b49;
+            background: #0d1922;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-mark {
+            display: grid;
+            place-items: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: #38bdf8;
+            color: #071019;
+            font-weight: 800;
+        }
+
+        .brand-name {
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .user-area {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .username {
+            color: #a9bac5;
+            font-size: 14px;
+        }
+
+        .logout-button,
+        .button {
+            padding: 10px 14px;
+            border: 1px solid #405563;
+            border-radius: 8px;
+            background: transparent;
+            color: #eef5f8;
+            text-decoration: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-button:hover,
+        .button:hover {
+            border-color: #38bdf8;
+            color: #38bdf8;
+        }
+
+        .button-primary {
+            border-color: #38bdf8;
+            background: #38bdf8;
+            color: #071019;
+            font-weight: 700;
+        }
+
+        .button-primary:hover {
+            background: transparent;
+            color: #38bdf8;
+        }
+
+        main {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 46px 28px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 34px;
+        }
+
+        .intro {
+            margin: 0 0 28px;
+            color: #8fa3b0;
+        }
+
+        .work-order-card {
+            margin-bottom: 22px;
+            padding: 20px;
+            border: 1px solid #2a4150;
+            border-radius: 14px;
+            background: #101e28;
+        }
+
+        .work-order-card p {
+            margin: 0;
+        }
+
+        .work-order-label {
+            margin-bottom: 8px !important;
+            color: #92a7b4;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .work-order-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .form-card {
+            padding: 24px;
+            border: 1px solid #2a4150;
+            border-radius: 14px;
+            background: #101e28;
+        }
+
+        .field {
+            margin-bottom: 20px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .field input,
+        .field select,
+        .field textarea {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid #405563;
+            border-radius: 8px;
+            background: #0b1720;
+            color: #eef5f8;
+            font: inherit;
+        }
+
+        .field textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .field input:focus,
+        .field select:focus,
+        .field textarea:focus {
+            outline: none;
+            border-color: #38bdf8;
+        }
+
+        .errorlist {
+            margin: 8px 0 0;
+            padding-left: 18px;
+            color: #fca5a5;
+            font-size: 13px;
+        }
+
+        .form-errors {
+            margin-bottom: 20px;
+            padding: 14px;
+            border: 1px solid #7f1d1d;
+            border-radius: 8px;
+            background: #2a1010;
+            color: #fecaca;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        @media (max-width: 520px) {
+            header {
+                padding: 16px;
+            }
+
+            main {
+                padding: 32px 16px;
+            }
+
+            .username {
+                display: none;
+            }
+
+            .actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .actions .button {
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="brand">
+            <div class="brand-mark">F</div>
+            <div class="brand-name">ForgeOps</div>
+        </div>
+
+        <div class="user-area">
+            <span class="username">
+                Signed in as {{ request.user.username }}
+            </span>
+
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+
+                <button
+                    class="logout-button"
+                    type="submit"
+                >
+                    Log out
+                </button>
+            </form>
+        </div>
+    </header>
+
+    <main>
+        <h1>Create Production Run</h1>
+
+        <p class="intro">
+            Create manufacturing execution for an existing ForgeOps Work Order.
+        </p>
+
+        <section class="work-order-card">
+            <p class="work-order-label">
+                Work Order
+            </p>
+
+            <p class="work-order-value">
+                {{ work_order.order_number }}
+                -
+                {{ work_order.product.code }}
+                -
+                {{ work_order.product.name }}
+            </p>
+        </section>
+
+        <section class="form-card">
+            <form method="post">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                    <div class="form-errors">
+                        {{ form.non_field_errors }}
+                    </div>
+                {% endif %}
+
+                <div class="field">
+                    <label for="{{ form.production_line.id_for_label }}">
+                        Production Line
+                    </label>
+
+                    {{ form.production_line }}
+                    {{ form.production_line.errors }}
+                </div>
+
+                <div class="field">
+                    <label for="{{ form.shift.id_for_label }}">
+                        Shift
+                    </label>
+
+                    {{ form.shift }}
+                    {{ form.shift.errors }}
+                </div>
+
+                <div class="field">
+                    <label for="{{ form.notes.id_for_label }}">
+                        Notes
+                    </label>
+
+                    {{ form.notes }}
+                    {{ form.notes.errors }}
+                </div>
+
+                <div class="actions">
+                    <button
+                        class="button button-primary"
+                        type="submit"
+                    >
+                        Create Production Run
+                    </button>
+
+                    <a
+                        class="button"
+                        href="{% url 'work-order-detail' work_order.pk %}"
+                    >
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </section>
+    </main>
+</body>
+</html>
