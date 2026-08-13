@@ -1,6 +1,12 @@
 from django import forms
 
-from .models import Product, WorkOrder
+from .models import (
+    Product,
+    ProductionLine,
+    ProductionRun,
+    Shift,
+    WorkOrder,
+)
 
 
 class WorkOrderForm(forms.ModelForm):
@@ -29,4 +35,37 @@ class WorkOrderForm(forms.ModelForm):
         self.fields["product"].queryset = (
             Product.objects.filter(is_active=True)
             .order_by("code")
+        )
+
+
+class ProductionRunForm(forms.ModelForm):
+    class Meta:
+        model = ProductionRun
+        fields = [
+            "production_line",
+            "shift",
+            "notes",
+        ]
+        widgets = {
+            "notes": forms.Textarea(
+                attrs={"rows": 4},
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["production_line"].queryset = (
+            ProductionLine.objects.filter(is_active=True)
+            .select_related("production_area__site")
+            .order_by(
+                "production_area__site__code",
+                "production_area__code",
+                "code",
+            )
+        )
+
+        self.fields["shift"].queryset = (
+            Shift.objects.filter(is_active=True)
+            .order_by("name")
         )

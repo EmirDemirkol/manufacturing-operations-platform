@@ -2,8 +2,14 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import WorkOrderForm
-from .models import Product, WorkOrder
+from .forms import ProductionRunForm, WorkOrderForm
+from .models import (
+    Product,
+    ProductionLine,
+    ProductionRun,
+    Shift,
+    WorkOrder,
+)
 
 
 ROLE_ROUTES = [
@@ -17,6 +23,18 @@ ROLE_ROUTES = [
 
 
 def user_can_create_work_orders(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
+def user_can_create_production_runs(user):
     if user.is_superuser:
         return True
 
@@ -112,7 +130,7 @@ def work_order_detail(request, pk):
     )
 
     production_runs = work_order.production_runs.select_related(
-        "production_line",
+        "production_line__production_area__site",
         "shift",
     ).all()
 
@@ -123,6 +141,9 @@ def work_order_detail(request, pk):
             "work_order": work_order,
             "production_runs": production_runs,
             "can_create_work_orders": user_can_create_work_orders(
+                request.user
+            ),
+            "can_create_production_runs": user_can_create_production_runs(
                 request.user
             ),
         },
@@ -154,5 +175,133 @@ def work_order_create(request):
         "core/work_order_form.html",
         {
             "form": form,
+        },
+    )
+
+
+@login_required
+def production_run_list(request):
+    production_runs = ProductionRun.objects.select_related(
+        "work_order__product",
+        "production_line__production_area__site",
+        "shift",
+    ).all()
+
+    selected_status = request.GET.get("status", "")
+    selected_work_order = request.GET.get("work_order", "")
+    selected_production_line = request.GET.get(
+        "production_line",
+        "",
+    )
+    selected_shift = request.GET.get("shift", "")
+
+    if selected_status:
+        production_runs = production_runs.filter(
+            status=selected_status
+        )
+
+    if selected_work_order:
+        production_runs = production_runs.filter(
+            work_order_id=selected_work_order
+        )
+
+    if selected_production_line:
+        production_runs = production_runs.filter(
+            production_line_id=selected_production_line
+        )
+
+    if selected_shift:
+        production_runs = production_runs.filter(
+            shift_id=selected_shift
+        )
+
+    work_orders = WorkOrder.objects.filter(
+        is_active=True
+    ).select_related("product").order_by("order_number")
+
+    production_lines = ProductionLine.objects.filter(
+        is_active=True
+    ).select_related(
+        "production_area__site"
+    ).order_by(
+        "production_area__site__code",
+        "production_area__code",
+        "code",
+    )
+
+    shifts = Shift.objects.filter(
+        is_active=True
+    ).order_by("name")
+
+    return render(
+        request,
+        "core/production_run_list.html",
+        {
+            "production_runs": production_runs,
+            "work_orders": work_orders,
+            "production_lines": production_lines,
+            "shifts": shifts,
+            "status_choices": ProductionRun.Status.choices,
+            "selected_status": selected_status,
+            "selected_work_order": selected_work_order,
+            "selected_production_line": selected_production_line,
+            "selected_shift": selected_shift,
+        },
+    )
+
+
+@login_required
+def production_run_detail(request, pk):
+    production_run = get_object_or_404(
+        ProductionRun.objects.select_related(
+            "work_order__product",
+            "production_line__production_area__site",
+            "shift",
+        ),
+        pk=pk,
+    )
+
+    return render(
+        request,
+        "core/production_run_detail.html",
+        {
+            "production_run": production_run,
+        },
+    )
+
+
+@login_required
+def production_run_create(request, work_order_pk):
+    if not user_can_create_production_runs(request.user):
+        raise PermissionDenied(
+            "You do not have permission to create Production Runs."
+        )
+
+    work_order = get_object_or_404(
+        WorkOrder.objects.select_related("product"),
+        pk=work_order_pk,
+    )
+
+    if request.method == "POST":
+        form = ProductionRunForm(request.POST)
+
+        if form.is_valid():
+            production_run = form.save(commit=False)
+            production_run.work_order = work_order
+            production_run.save()
+
+            return redirect(
+                "production-run-detail",
+                pk=production_run.pk,
+            )
+    else:
+        form = ProductionRunForm()
+
+    return render(
+        request,
+        "core/production_run_form.html",
+        {
+            "form": form,
+            "work_order": work_order,
         },
     )

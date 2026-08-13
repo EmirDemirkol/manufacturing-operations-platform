@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, time
 from io import StringIO
 from unittest.mock import patch
 
@@ -8,7 +8,15 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Product, WorkOrder
+from .models import (
+    Product,
+    ProductionArea,
+    ProductionLine,
+    ProductionRun,
+    Shift,
+    Site,
+    WorkOrder,
+)
 
 
 ROLE_NAMES = {
@@ -557,4 +565,491 @@ class WorkOrderInterfaceTests(TestCase):
         self.assertNotIn(
             self.inactive_product,
             product_queryset,
+        )
+
+
+class ProductionRunInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+        cls.supervisor_group = Group.objects.get(
+            name="Production Supervisor"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo012_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(cls.operator_group)
+
+        cls.supervisor = User.objects.create_user(
+            username="fo012_supervisor",
+            password=cls.password,
+        )
+        cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.site = Site.objects.create(
+            code="FO012-SITE",
+            name="Synthetic FO-012 Site",
+            description="Synthetic site for FO-012 interface tests.",
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="FO012-AREA",
+            name="Synthetic FO-012 Area",
+            description="Synthetic area for FO-012 interface tests.",
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO012-LINE-A",
+            name="Synthetic FO-012 Line A",
+            description="Primary synthetic Production Line.",
+        )
+
+        cls.second_production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO012-LINE-B",
+            name="Synthetic FO-012 Line B",
+            description="Second synthetic Production Line.",
+        )
+
+        cls.inactive_production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO012-LINE-INACTIVE",
+            name="Inactive Synthetic FO-012 Line",
+            description="Inactive line for FO-012 form testing.",
+            is_active=False,
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-012 Day Shift",
+            start_time=time(7, 0),
+            end_time=time(15, 0),
+        )
+
+        cls.second_shift = Shift.objects.create(
+            name="FO-012 Night Shift",
+            start_time=time(23, 0),
+            end_time=time(7, 0),
+        )
+
+        cls.inactive_shift = Shift.objects.create(
+            name="FO-012 Inactive Shift",
+            start_time=time(15, 0),
+            end_time=time(23, 0),
+            is_active=False,
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO012-A",
+            name="Synthetic FO-012 Product",
+            description="Synthetic product for FO-012 interface tests.",
+        )
+
+        cls.work_order = WorkOrder.objects.create(
+            order_number="WO-FO012-0001",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 25),
+            notes="Synthetic Work Order for FO-012.",
+        )
+
+        cls.second_work_order = WorkOrder.objects.create(
+            order_number="WO-FO012-0002",
+            product=cls.product,
+            planned_quantity=500,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Second synthetic Work Order for FO-012.",
+        )
+
+        cls.active_production_run = ProductionRun.objects.create(
+            work_order=cls.work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.ACTIVE,
+            notes="Synthetic active Production Run.",
+        )
+
+        cls.planned_production_run = ProductionRun.objects.create(
+            work_order=cls.second_work_order,
+            production_line=cls.second_production_line,
+            shift=cls.second_shift,
+            status=ProductionRun.Status.PLANNED,
+            notes="Synthetic planned Production Run.",
+        )
+
+    def test_production_run_list_requires_login(self):
+        response = self.client.get(
+            reverse("production-run-list")
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_authenticated_operator_can_view_production_run_list(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse("production-run-list")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Run #{self.active_production_run.pk}",
+        )
+        self.assertContains(
+            response,
+            f"Run #{self.planned_production_run.pk}",
+        )
+
+    def test_production_run_detail_page_displays_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Production Run #{self.active_production_run.pk}",
+        )
+        self.assertContains(
+            response,
+            self.work_order.order_number,
+        )
+        self.assertContains(
+            response,
+            self.production_line.code,
+        )
+        self.assertContains(
+            response,
+            self.shift.name,
+        )
+        self.assertContains(
+            response,
+            "Active",
+        )
+
+    def test_supervisor_can_access_production_run_create_page(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.work_order.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Create Production Run",
+        )
+        self.assertContains(
+            response,
+            self.work_order.order_number,
+        )
+
+    def test_operator_cannot_access_production_run_create_page(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.work_order.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_supervisor_can_create_valid_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            ),
+            {
+                "production_line": self.production_line.pk,
+                "shift": self.shift.pk,
+                "notes": "Synthetic FO-012 creation test.",
+            },
+        )
+
+        created_run = ProductionRun.objects.get(
+            work_order=self.second_work_order,
+            production_line=self.production_line,
+            shift=self.shift,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={"pk": created_run.pk},
+            ),
+        )
+        self.assertEqual(
+            created_run.status,
+            ProductionRun.Status.PLANNED,
+        )
+        self.assertIsNone(created_run.started_at)
+        self.assertIsNone(created_run.ended_at)
+
+    def test_created_production_run_belongs_to_requested_work_order(self):
+        self.client.force_login(self.supervisor)
+
+        self.client.post(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            ),
+            {
+                "production_line": self.production_line.pk,
+                "shift": self.shift.pk,
+                "notes": "Synthetic Work Order relationship test.",
+            },
+        )
+
+        created_run = ProductionRun.objects.get(
+            work_order=self.second_work_order,
+            production_line=self.production_line,
+            shift=self.shift,
+        )
+
+        self.assertEqual(
+            created_run.work_order,
+            self.second_work_order,
+        )
+
+    def test_production_line_is_required_when_creating_run(self):
+        self.client.force_login(self.supervisor)
+
+        initial_count = ProductionRun.objects.count()
+
+        response = self.client.post(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            ),
+            {
+                "production_line": "",
+                "shift": self.shift.pk,
+                "notes": "Synthetic missing Production Line test.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            ProductionRun.objects.count(),
+            initial_count,
+        )
+        self.assertIn(
+            "production_line",
+            response.context["form"].errors,
+        )
+
+    def test_shift_is_required_when_creating_run(self):
+        self.client.force_login(self.supervisor)
+
+        initial_count = ProductionRun.objects.count()
+
+        response = self.client.post(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            ),
+            {
+                "production_line": self.production_line.pk,
+                "shift": "",
+                "notes": "Synthetic missing Shift test.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            ProductionRun.objects.count(),
+            initial_count,
+        )
+        self.assertIn(
+            "shift",
+            response.context["form"].errors,
+        )
+
+    def test_inactive_production_lines_are_not_available_in_creation_form(
+        self
+    ):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            )
+        )
+
+        production_line_queryset = (
+            response.context["form"]
+            .fields["production_line"]
+            .queryset
+        )
+
+        self.assertIn(
+            self.production_line,
+            production_line_queryset,
+        )
+        self.assertIn(
+            self.second_production_line,
+            production_line_queryset,
+        )
+        self.assertNotIn(
+            self.inactive_production_line,
+            production_line_queryset,
+        )
+
+    def test_inactive_shifts_are_not_available_in_creation_form(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.second_work_order.pk,
+                },
+            )
+        )
+
+        shift_queryset = (
+            response.context["form"]
+            .fields["shift"]
+            .queryset
+        )
+
+        self.assertIn(
+            self.shift,
+            shift_queryset,
+        )
+        self.assertIn(
+            self.second_shift,
+            shift_queryset,
+        )
+        self.assertNotIn(
+            self.inactive_shift,
+            shift_queryset,
+        )
+
+    def test_production_run_list_can_filter_by_status(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse("production-run-list"),
+            {
+                "status": ProductionRun.Status.PLANNED,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Run #{self.planned_production_run.pk}",
+        )
+        self.assertNotContains(
+            response,
+            f"Run #{self.active_production_run.pk}",
+        )
+
+    def test_production_run_list_can_filter_by_work_order(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse("production-run-list"),
+            {
+                "work_order": self.work_order.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Run #{self.active_production_run.pk}",
+        )
+        self.assertNotContains(
+            response,
+            f"Run #{self.planned_production_run.pk}",
+        )
+
+    def test_production_run_list_can_filter_by_production_line(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse("production-run-list"),
+            {
+                "production_line": self.production_line.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Run #{self.active_production_run.pk}",
+        )
+        self.assertNotContains(
+            response,
+            f"Run #{self.planned_production_run.pk}",
+        )
+
+    def test_production_run_list_can_filter_by_shift(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse("production-run-list"),
+            {
+                "shift": self.second_shift.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f"Run #{self.planned_production_run.pk}",
+        )
+        self.assertNotContains(
+            response,
+            f"Run #{self.active_production_run.pk}",
         )
