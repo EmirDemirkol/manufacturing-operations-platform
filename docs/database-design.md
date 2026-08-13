@@ -3448,3 +3448,322 @@ In operational terms:
 49. FO-012 does not modify the existing database schema.
 
 This is the current ForgeOps database and application foundation after FO-012.
+
+# 21. FO-013 Current State
+
+## FO-013: Implement Production Run Start Workflow
+
+FO-013 introduces the first ProductionRun lifecycle action through the ForgeOps website.
+
+The existing ProductionRun model remains unchanged.
+
+No database migration is required.
+
+## ProductionRun Start Workflow
+
+An authorised User may start an existing ProductionRun through the ProductionRun detail page.
+
+The workflow is:
+
+```text
+PLANNED ProductionRun
+        |
+        v
+Start Production Run
+        |
+        v
+POST request
+        |
+        v
+Permission validation
+        |
+        v
+ProductionRun state validation
+        |
+        v
+ACTIVE
+```
+
+Starting a ProductionRun changes:
+
+```text
+status     -> ACTIVE
+started_at -> current application timestamp
+ended_at   -> None
+```
+
+The ProductionRun is then redirected back to its detail page.
+
+## Start Permissions
+
+ProductionRun start permission is granted to:
+
+- Production Supervisor
+- System Administrator
+- Django superuser
+
+Operators may inspect ProductionRuns but may not start them.
+
+Unauthorised start attempts return:
+
+```text
+403 Forbidden
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+## HTTP Method Requirement
+
+ProductionRun lifecycle changes must not occur through a normal GET request.
+
+The start endpoint therefore requires:
+
+```text
+POST
+```
+
+A GET request to the start endpoint is rejected with:
+
+```text
+403 Forbidden
+```
+
+This prevents ProductionRun state changes from being triggered through ordinary page navigation.
+
+## ProductionRun State Requirement
+
+Only ProductionRuns currently in:
+
+```text
+PLANNED
+```
+
+status may be started.
+
+A ProductionRun already in:
+
+```text
+ACTIVE
+```
+
+status cannot be started again.
+
+Other ProductionRun lifecycle states also remain ineligible for the FO-013 start action.
+
+## Active ProductionRun Constraint
+
+The existing ProductionRun model already enforces:
+
+```text
+Only one ACTIVE ProductionRun may exist for one WorkOrder at a time.
+```
+
+FO-013 preserves this rule in the website workflow.
+
+Before starting a PLANNED ProductionRun, the application checks whether another ACTIVE ProductionRun already exists for the same WorkOrder.
+
+If another ACTIVE ProductionRun exists, the start request is rejected with:
+
+```text
+403 Forbidden
+```
+
+The PLANNED ProductionRun remains unchanged.
+
+This application-level validation prevents the existing database uniqueness constraint from surfacing as an unhandled ValidationError during the website workflow.
+
+The database constraint remains authoritative.
+
+## ProductionRun Detail Integration
+
+For an authorised User, the ProductionRun detail page displays:
+
+```text
+Start Production Run
+```
+
+only when the ProductionRun status is:
+
+```text
+PLANNED
+```
+
+After a successful start:
+
+- status displays as Active
+- `started_at` displays the generated start timestamp
+- `ended_at` remains empty
+- the Start Production Run action disappears
+
+The detail page therefore reflects the current lifecycle state of the ProductionRun.
+
+## Manual FO-013 Verification
+
+FO-013 was manually verified using synthetic manufacturing data.
+
+Manual verification demonstrated:
+
+- A PLANNED ProductionRun displays the Start Production Run action for an authorised User.
+- Starting a valid PLANNED ProductionRun succeeds.
+- The ProductionRun changes from PLANNED to ACTIVE.
+- `started_at` is populated automatically.
+- `ended_at` remains empty.
+- The Start Production Run action disappears after successful start.
+- An existing ACTIVE ProductionRun cannot be started again.
+- A second ProductionRun for the same WorkOrder cannot be started while another ACTIVE ProductionRun exists.
+- The conflicting start attempt returns 403 Forbidden instead of an unhandled ValidationError.
+- The conflicting ProductionRun remains PLANNED.
+- Existing ProductionRun database constraints remain unchanged.
+
+All records used for manual FO-013 verification were synthetic.
+
+Example successful transition:
+
+```text
+Production Run #3
+Work Order: WO-2026-0003
+
+Before:
+Status: PLANNED
+Started: Not started
+Ended: Not ended
+
+After:
+Status: ACTIVE
+Started: generated timestamp
+Ended: Not ended
+```
+
+## Automated FO-013 Validation
+
+FO-013 adds seven ProductionRun start workflow tests to:
+
+```text
+core/tests.py
+```
+
+The existing ProductionRun interface test class now contains:
+
+```text
+22 tests
+```
+
+The dedicated interface test run produced:
+
+```text
+Found 22 test(s)
+Ran 22 tests
+OK
+```
+
+FO-013 automated tests verify:
+
+- authorised User sees the Start Production Run action for a PLANNED ProductionRun
+- Start Production Run action is hidden for an ACTIVE ProductionRun
+- Operator cannot start a ProductionRun
+- ProductionRun start requires POST
+- Production Supervisor may start a valid PLANNED ProductionRun
+- an ACTIVE ProductionRun cannot be started again
+- a second ACTIVE ProductionRun for the same WorkOrder is blocked
+
+## Full Core Validation
+
+The full Core test suite after FO-013 produced:
+
+```text
+Ran 169 tests
+OK
+```
+
+FO-013 therefore adds seven automated tests while preserving the existing 162-test FO-012 baseline.
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-013 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-013 migration is required.
+
+## FO-013 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+docs/database-design.md
+```
+
+## FO-013 Acceptance Criteria Verified
+
+- ProductionRun start workflow is implemented.
+- Only authorised Users may start ProductionRuns.
+- Start operation requires POST.
+- Only PLANNED ProductionRuns may be started.
+- Successful start changes status to ACTIVE.
+- Successful start records `started_at` automatically.
+- Successful start leaves `ended_at` empty.
+- Start action is displayed only for eligible PLANNED ProductionRuns.
+- Existing ACTIVE ProductionRuns cannot be started again.
+- A second ACTIVE ProductionRun for the same WorkOrder is blocked.
+- Active-run conflicts return controlled 403 responses.
+- Existing database constraints remain authoritative.
+- No database migration is introduced.
+- Manual verification uses synthetic manufacturing data.
+- 22 ProductionRun interface tests pass.
+- 169 Core tests pass.
+- Django system checks pass.
+- Migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-013 Out of Scope
+
+FO-013 does not implement:
+
+- ProductionRun pause workflow
+- ProductionRun resume workflow
+- ProductionRun completion workflow
+- ProductionRun cancellation workflow
+- ProductionRun editing
+- ProductionRun deletion
+- Operator assignment
+- ProductionEntry website workflow
+- DowntimeEvent website workflow
+- QualityInspection website workflow
+- automatic AuditEvent creation for ProductionRun start actions
+- automatic WorkOrder status changes
+- machine integration
+- MES integration
+- REST API endpoints
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.

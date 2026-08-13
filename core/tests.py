@@ -1053,3 +1053,179 @@ class ProductionRunInterfaceTests(TestCase):
             response,
             f"Run #{self.active_production_run.pk}",
         )
+
+    def test_supervisor_sees_start_button_for_planned_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Start Production Run",
+        )
+
+    def test_start_button_is_not_shown_for_active_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Start Production Run",
+        )
+
+    def test_operator_cannot_start_production_run(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.planned_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.planned_production_run.status,
+            ProductionRun.Status.PLANNED,
+        )
+        self.assertIsNone(
+            self.planned_production_run.started_at
+        )
+
+    def test_production_run_start_requires_post(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.planned_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.planned_production_run.status,
+            ProductionRun.Status.PLANNED,
+        )
+
+    def test_supervisor_can_start_planned_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.planned_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            ),
+        )
+        self.assertEqual(
+            self.planned_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+        self.assertIsNotNone(
+            self.planned_production_run.started_at
+        )
+        self.assertIsNone(
+            self.planned_production_run.ended_at
+        )
+
+    def test_active_production_run_cannot_be_started_again(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+
+    def test_second_active_run_for_same_work_order_is_blocked(self):
+        conflicting_planned_run = ProductionRun.objects.create(
+            work_order=self.work_order,
+            production_line=self.second_production_line,
+            shift=self.second_shift,
+            status=ProductionRun.Status.PLANNED,
+            notes="Synthetic FO-013 active-run conflict test.",
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": conflicting_planned_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        conflicting_planned_run.refresh_from_db()
+
+        self.assertEqual(
+            conflicting_planned_run.status,
+            ProductionRun.Status.PLANNED,
+        )
+        self.assertIsNone(
+            conflicting_planned_run.started_at
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )

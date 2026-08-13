@@ -1,6 +1,7 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from .forms import ProductionRunForm, WorkOrderForm
 from .models import (
@@ -35,6 +36,18 @@ def user_can_create_work_orders(user):
 
 
 def user_can_create_production_runs(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
+def user_can_start_production_runs(user):
     if user.is_superuser:
         return True
 
@@ -266,6 +279,9 @@ def production_run_detail(request, pk):
         "core/production_run_detail.html",
         {
             "production_run": production_run,
+            "can_start_production_runs": user_can_start_production_runs(
+                request.user
+            ),
         },
     )
 
@@ -304,4 +320,59 @@ def production_run_create(request, work_order_pk):
             "form": form,
             "work_order": work_order,
         },
+    )
+
+@login_required
+def production_run_start(request, pk):
+    if not user_can_start_production_runs(request.user):
+        raise PermissionDenied(
+            "You do not have permission to start Production Runs."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun,
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Production Runs may only be started using POST."
+        )
+
+    if production_run.status != ProductionRun.Status.PLANNED:
+        raise PermissionDenied(
+            "Only PLANNED Production Runs may be started."
+        )
+
+    active_run_exists = (
+        ProductionRun.objects.filter(
+            work_order=production_run.work_order,
+            status=ProductionRun.Status.ACTIVE,
+        )
+        .exclude(pk=production_run.pk)
+        .exists()
+    )
+
+    if active_run_exists:
+        raise PermissionDenied(
+            "This Work Order already has an ACTIVE Production Run."
+        )
+
+    production_run.status = ProductionRun.Status.ACTIVE
+    production_run.started_at = timezone.now()
+    production_run.ended_at = None
+
+    production_run.full_clean()
+    production_run.save(
+        update_fields=[
+            "status",
+            "started_at",
+            "ended_at",
+            "updated_at",
+        ]
+    )
+
+    return redirect(
+        "production-run-detail",
+        pk=production_run.pk,
     )
