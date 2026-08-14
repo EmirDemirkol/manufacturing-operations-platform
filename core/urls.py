@@ -82,6 +82,11 @@ urlpatterns = [
         name="production-run-resume",
     ),
     path(
+        "production-runs/<int:pk>/complete/",
+        views.production_run_complete,
+        name="production-run-complete",
+    ),
+    path(
         "work-orders/<int:work_order_pk>/production-runs/new/",
         views.production_run_create,
         name="production-run-create",

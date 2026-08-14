@@ -4678,3 +4678,589 @@ FO-015 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 24. FO-016 Current State
+
+## FO-016: Implement Production Run Completion Workflow
+
+FO-016 introduces the ProductionRun completion lifecycle action through the ForgeOps website.
+
+The existing ProductionRun model remains unchanged.
+
+No database migration is required because the existing ProductionRun status set already includes:
+
+```text
+ACTIVE
+COMPLETED
+```
+
+## ProductionRun Completion Workflow
+
+An authorised User may complete an existing ACTIVE ProductionRun through the ProductionRun detail page.
+
+The workflow is:
+
+```text
+ACTIVE ProductionRun
+        |
+        v
+Complete Production Run
+        |
+        v
+POST request
+        |
+        v
+Permission validation
+        |
+        v
+ProductionRun state validation
+        |
+        v
+COMPLETED
+```
+
+Completing a ProductionRun changes:
+
+```text
+status   -> COMPLETED
+ended_at -> current application timestamp
+```
+
+The original ProductionRun start timestamp is preserved.
+
+Successful completion therefore leaves:
+
+```text
+started_at -> unchanged
+ended_at   -> populated
+```
+
+After a successful completion, the User is redirected back to the ProductionRun detail page.
+
+## Completion Permissions
+
+ProductionRun completion permission is granted to:
+
+- Production Supervisor
+- System Administrator
+- Django superuser
+
+Operators may inspect ProductionRuns but may not complete them.
+
+Unauthorised completion attempts return:
+
+```text
+403 Forbidden
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+FO-016 does not introduce a separate permission system.
+
+## HTTP Method Requirement
+
+ProductionRun completion changes application state and therefore requires:
+
+```text
+POST
+```
+
+The ProductionRun detail page submits the completion action through a POST form protected by Django CSRF validation.
+
+A direct GET request to the completion endpoint is rejected with:
+
+```text
+403 Forbidden
+```
+
+The ProductionRun remains unchanged.
+
+## ProductionRun State Requirement
+
+Only ProductionRuns currently in:
+
+```text
+ACTIVE
+```
+
+status may be completed.
+
+Completion attempts are rejected for ProductionRuns in:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+Invalid transition attempts return:
+
+```text
+403 Forbidden
+```
+
+and do not change the ProductionRun state.
+
+A COMPLETED ProductionRun cannot be completed again.
+
+## Completion Timestamp Behaviour
+
+Successful completion automatically records the ProductionRun end timestamp using the current application time.
+
+Conceptually:
+
+```text
+ended_at = timezone.now()
+```
+
+The existing ProductionRun start timestamp is not replaced.
+
+Successful completion therefore produces:
+
+```text
+status     -> COMPLETED
+started_at -> unchanged
+ended_at   -> populated
+```
+
+The existing ProductionRun validation rule remains authoritative:
+
+```text
+ended_at >= started_at
+```
+
+FO-016 does not duplicate or replace that existing validation.
+
+## ProductionRun Detail Integration
+
+For an authorised User, the ProductionRun detail page displays:
+
+```text
+Complete Production Run
+```
+
+only when the ProductionRun status is:
+
+```text
+ACTIVE
+```
+
+An authorised User viewing an ACTIVE ProductionRun may therefore see:
+
+```text
+Pause Production Run
+Complete Production Run
+```
+
+These represent two separate valid lifecycle transitions.
+
+After a successful completion:
+
+- status displays as Completed
+- the original `started_at` timestamp remains unchanged
+- `ended_at` displays the generated completion timestamp
+- the Complete Production Run action disappears
+- the Pause Production Run action disappears
+- the Resume Production Run action remains unavailable
+- the Start Production Run action remains unavailable
+
+A COMPLETED ProductionRun therefore exposes no currently implemented lifecycle action.
+
+## Existing Lifecycle Compatibility
+
+FO-016 preserves all ProductionRun lifecycle behaviour introduced by earlier issues.
+
+FO-013 implements:
+
+```text
+PLANNED -> ACTIVE
+```
+
+FO-014 implements:
+
+```text
+ACTIVE -> PAUSED
+```
+
+FO-015 implements:
+
+```text
+PAUSED -> ACTIVE
+```
+
+FO-016 implements:
+
+```text
+ACTIVE -> COMPLETED
+```
+
+The implemented lifecycle after FO-016 is:
+
+```text
+PLANNED
+   |
+   | Start
+   v
+ACTIVE
+   |
+   |--------------------|
+   |                    |
+   | Pause              | Complete
+   v                    v
+PAUSED              COMPLETED
+   |
+   | Resume
+   v
+ACTIVE
+```
+
+COMPLETED is a terminal state for the lifecycle workflows implemented through FO-016.
+
+FO-016 does not provide a workflow for reopening a COMPLETED ProductionRun.
+
+## Existing ProductionEntry Behaviour
+
+FO-016 does not introduce new ProductionEntry validation.
+
+The existing ProductionEntry model permits new ProductionEntry records only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a COMPLETED ProductionRun naturally rejects new ProductionEntry records through the existing model rule.
+
+FO-016 does not duplicate this validation in the completion view.
+
+FO-016 does not introduce a ProductionEntry website workflow.
+
+## Existing DowntimeEvent Behaviour
+
+FO-016 does not introduce new DowntimeEvent validation.
+
+The existing DowntimeEvent model permits new DowntimeEvents to be opened only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a COMPLETED ProductionRun naturally rejects new DowntimeEvent creation through the existing model rule.
+
+FO-016 does not duplicate this validation in the completion view.
+
+## Downtime Independence
+
+FO-016 does not automatically:
+
+- create a DowntimeEvent
+- close an existing DowntimeEvent
+- pause a ProductionRun when downtime opens
+- resume a ProductionRun when downtime closes
+
+The unresolved business questions around automatic ProductionRun lifecycle changes from downtime remain outside FO-016.
+
+FO-016 also does not introduce a new rule requiring all DowntimeEvents to be closed before completion.
+
+Any future rule linking open DowntimeEvents to ProductionRun completion must be implemented through a separate roadmap issue.
+
+## QualityInspection Behaviour
+
+FO-016 does not introduce QualityInspection completion requirements.
+
+Existing QualityInspection model validation remains unchanged.
+
+ProductionRun completion through FO-016 does not require:
+
+- all QualityInspection records to be completed
+- all QualityInspection records to be PASSED
+- absence of PENDING QualityInspection records
+- quality approval before ProductionRun completion
+
+The existing documentation already identifies ProductionRun quality-completion requirements as unresolved.
+
+FO-016 therefore does not silently introduce a new quality gate.
+
+Any future rule connecting QualityInspection state to ProductionRun completion must be explicitly defined and tested through a separate roadmap issue.
+
+## WorkOrder Behaviour
+
+FO-016 does not automatically modify the status of the associated WorkOrder.
+
+Completing a ProductionRun does not automatically change the WorkOrder to:
+
+```text
+COMPLETED
+```
+
+or any other WorkOrder state.
+
+Automatic WorkOrder lifecycle behaviour remains reserved for a future roadmap issue.
+
+## AuditEvent Behaviour
+
+FO-016 does not automatically create an AuditEvent when a ProductionRun is completed.
+
+The existing FO-010 AuditEvent architecture remains unchanged.
+
+Automatic lifecycle audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
+
+## Manual FO-016 Verification
+
+FO-016 was manually verified through the ForgeOps website using synthetic manufacturing data.
+
+The primary manual completion test used:
+
+```text
+Production Run #2
+Work Order: WO-2026-0001
+Production Line: LINE-A01 - Line A
+Shift: Night Shift
+```
+
+Before completion:
+
+```text
+Status: ACTIVE
+Started: 14 Aug 2026, 4:30 p.m.
+Ended: Not ended
+```
+
+The authorised User was presented with:
+
+```text
+Pause Production Run
+Complete Production Run
+```
+
+After submitting the completion action:
+
+```text
+Status: COMPLETED
+Started: 14 Aug 2026, 4:30 p.m.
+Ended: 14 Aug 2026, 5:54 p.m.
+```
+
+The manual test demonstrated that:
+
+- An ACTIVE ProductionRun displays the Complete Production Run action to an authorised User.
+- The completion action submits successfully through POST.
+- The ProductionRun changes from ACTIVE to COMPLETED.
+- The original `started_at` timestamp remains unchanged.
+- `ended_at` is populated automatically.
+- The generated `ended_at` timestamp is later than the existing `started_at` timestamp.
+- The Complete Production Run action disappears after successful completion.
+- The Pause Production Run action disappears after successful completion.
+- The Resume Production Run action is unavailable for the COMPLETED run.
+- The Start Production Run action is unavailable for the COMPLETED run.
+- Direct GET access to the completion endpoint returns 403 Forbidden.
+
+Operator permission behaviour was manually verified using:
+
+```text
+operator_demo
+```
+
+against an ACTIVE synthetic ProductionRun.
+
+The Operator could inspect the ProductionRun but received no:
+
+```text
+Complete Production Run
+```
+
+action.
+
+Direct browser access to:
+
+```text
+/production-runs/2/complete/
+```
+
+using GET returned:
+
+```text
+403 Forbidden
+```
+
+All records used for manual FO-016 verification were synthetic.
+
+## Automated FO-016 Validation
+
+FO-016 adds ten ProductionRun completion workflow tests to:
+
+```text
+core/tests.py
+```
+
+The existing ProductionRun interface test class now contains:
+
+```text
+52 tests
+```
+
+The dedicated interface test run produced:
+
+```text
+Ran 52 tests
+OK
+```
+
+FO-016 automated tests verify:
+
+- Production Supervisor sees the Complete Production Run action for an ACTIVE ProductionRun
+- Complete Production Run action is hidden for a PLANNED ProductionRun
+- Complete Production Run action is hidden for a PAUSED ProductionRun
+- Operator cannot complete a ProductionRun
+- ProductionRun completion requires POST
+- Production Supervisor may complete a valid ACTIVE ProductionRun
+- successful completion changes status to COMPLETED
+- successful completion preserves `started_at`
+- successful completion populates `ended_at`
+- generated `ended_at` is not earlier than `started_at`
+- a PLANNED ProductionRun cannot be completed
+- a PAUSED ProductionRun cannot be completed
+- a COMPLETED ProductionRun cannot be completed again
+- a CANCELLED ProductionRun cannot be completed
+- rejected completion attempts preserve the existing ProductionRun state
+
+Several related assertions are combined within individual tests.
+
+## Full Core Validation
+
+The full Core test suite after FO-016 produced:
+
+```text
+Ran 199 tests
+OK
+```
+
+FO-016 therefore adds ten automated tests while preserving the existing 189-test FO-015 baseline.
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-016 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-016 migration is required.
+
+## FO-016 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+docs/database-design.md
+```
+
+## FO-016 Acceptance Criteria Verified
+
+- ProductionRun completion workflow is implemented.
+- The valid completion transition is ACTIVE to COMPLETED.
+- Only authorised Users may complete ProductionRuns.
+- Production Supervisor completion permission is implemented.
+- System Administrator completion permission is implemented in permission logic.
+- Django superuser completion permission is implemented.
+- Operators cannot complete ProductionRuns.
+- Completion requires POST.
+- Direct GET completion requests return 403 Forbidden.
+- Only ACTIVE ProductionRuns may be completed.
+- PLANNED ProductionRuns cannot be completed.
+- PAUSED ProductionRuns cannot be completed.
+- COMPLETED ProductionRuns cannot be completed again.
+- CANCELLED ProductionRuns cannot be completed.
+- Successful completion changes status to COMPLETED.
+- Successful completion preserves the original `started_at`.
+- Successful completion automatically records `ended_at`.
+- Completion timestamp ordering remains protected by existing validation.
+- Complete Production Run appears only for eligible ACTIVE ProductionRuns.
+- Complete Production Run disappears after successful completion.
+- Pause Production Run disappears after successful completion.
+- Start Production Run is unavailable for COMPLETED ProductionRuns.
+- Resume Production Run is unavailable for COMPLETED ProductionRuns.
+- Existing FO-013 Start workflow remains functional.
+- Existing FO-014 Pause workflow remains functional.
+- Existing FO-015 Resume workflow remains functional.
+- Existing ProductionEntry ACTIVE-status validation remains unchanged.
+- Existing DowntimeEvent ACTIVE-status validation remains unchanged.
+- Existing QualityInspection validation remains unchanged.
+- QualityInspection records do not currently block ProductionRun completion.
+- No automatic DowntimeEvent behaviour is introduced.
+- No automatic AuditEvent creation is introduced.
+- No automatic WorkOrder status changes are introduced.
+- Existing database constraints remain authoritative.
+- No database migration is introduced.
+- Manual verification uses synthetic manufacturing data.
+- 52 ProductionRun interface tests pass.
+- 199 Core tests pass.
+- Django system checks pass.
+- Migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-016 Out of Scope
+
+FO-016 does not implement:
+
+- ProductionRun cancellation workflow
+- ProductionRun editing
+- ProductionRun deletion
+- reopening a COMPLETED ProductionRun
+- completion reason recording
+- completion comments workflow beyond existing ProductionRun notes
+- electronic signatures
+- completion approval workflow
+- Operator assignment
+- pause reason recording
+- pause duration tracking
+- ProductionEntry website workflow
+- DowntimeEvent website workflow
+- QualityInspection website workflow
+- mandatory PASSED QualityInspection before ProductionRun completion
+- mandatory completion of all QualityInspection records before ProductionRun completion
+- blocking ProductionRun completion because of an open DowntimeEvent
+- automatic DowntimeEvent creation
+- automatic DowntimeEvent closure
+- automatic ProductionRun pause from DowntimeEvent creation
+- automatic ProductionRun resume from DowntimeEvent closure
+- automatic AuditEvent creation for ProductionRun completion actions
+- automatic WorkOrder status changes
+- machine integration
+- MES integration
+- REST API endpoints
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
