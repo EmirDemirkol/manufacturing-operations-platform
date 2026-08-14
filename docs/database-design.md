@@ -3767,3 +3767,416 @@ FO-013 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 22. FO-014 Current State
+
+## FO-014: Implement Production Run Pause Workflow
+
+FO-014 introduces the ProductionRun pause lifecycle action through the ForgeOps website.
+
+The existing ProductionRun model remains unchanged.
+
+No database migration is required because the existing ProductionRun status set already includes:
+
+```text
+PAUSED
+```
+
+## ProductionRun Pause Workflow
+
+An authorised User may pause an existing ACTIVE ProductionRun through the ProductionRun detail page.
+
+The workflow is:
+
+```text
+ACTIVE ProductionRun
+        |
+        v
+Pause Production Run
+        |
+        v
+POST request
+        |
+        v
+Permission validation
+        |
+        v
+ProductionRun state validation
+        |
+        v
+PAUSED
+```
+
+Pausing a ProductionRun changes:
+
+```text
+status -> PAUSED
+```
+
+The existing lifecycle timestamps are preserved.
+
+Successful pause therefore leaves:
+
+```text
+started_at -> unchanged
+ended_at   -> unchanged
+```
+
+Pausing a ProductionRun does not complete or end the run.
+
+After a successful pause, the User is redirected back to the ProductionRun detail page.
+
+## Pause Permissions
+
+ProductionRun pause permission is granted to:
+
+- Production Supervisor
+- System Administrator
+- Django superuser
+
+Operators may inspect ProductionRuns but may not pause them.
+
+Unauthorised pause attempts return:
+
+```text
+403 Forbidden
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+FO-014 does not introduce a separate permission system.
+
+## HTTP Method Requirement
+
+ProductionRun pause changes application state and therefore requires:
+
+```text
+POST
+```
+
+The ProductionRun detail page submits the pause action through a POST form protected by Django CSRF validation.
+
+A direct GET request to the pause endpoint is rejected with:
+
+```text
+403 Forbidden
+```
+
+The ProductionRun remains unchanged.
+
+## ProductionRun State Requirement
+
+Only ProductionRuns currently in:
+
+```text
+ACTIVE
+```
+
+status may be paused.
+
+Pause attempts are rejected for ProductionRuns in:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+Invalid transition attempts return:
+
+```text
+403 Forbidden
+```
+
+and do not change the ProductionRun state.
+
+## ProductionRun Detail Integration
+
+For an authorised User, the ProductionRun detail page displays:
+
+```text
+Pause Production Run
+```
+
+only when the ProductionRun status is:
+
+```text
+ACTIVE
+```
+
+After a successful pause:
+
+- status displays as Paused
+- the existing `started_at` timestamp remains unchanged
+- `ended_at` remains unchanged
+- the Pause Production Run action disappears
+- the Start Production Run action remains unavailable
+
+The ProductionRun detail page therefore reflects the current lifecycle state of the ProductionRun.
+
+## Existing ProductionEntry Behaviour
+
+FO-014 does not introduce new ProductionEntry validation.
+
+The existing ProductionEntry model already permits new entries only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a PAUSED ProductionRun naturally rejects new ProductionEntry records through the existing model rule.
+
+FO-014 does not duplicate this validation in the pause view.
+
+## Existing DowntimeEvent Behaviour
+
+FO-014 does not introduce new DowntimeEvent validation.
+
+The existing DowntimeEvent model already permits new downtime events to be opened only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a PAUSED ProductionRun naturally rejects new DowntimeEvent creation through the existing model rule.
+
+FO-014 does not duplicate this validation in the pause view.
+
+## Downtime Independence
+
+FO-014 does not automatically create a DowntimeEvent when a ProductionRun is paused.
+
+Existing DowntimeEvent behaviour remains independent from the ProductionRun pause workflow.
+
+The unresolved business questions around:
+
+```text
+automatic pause when downtime opens
+automatic resume when downtime closes
+```
+
+remain unresolved and are not changed by FO-014.
+
+## AuditEvent Behaviour
+
+FO-014 does not automatically create an AuditEvent when a ProductionRun is paused.
+
+The existing FO-010 AuditEvent architecture remains unchanged.
+
+Automatic lifecycle audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
+
+## Manual FO-014 Verification
+
+FO-014 was manually verified through the ForgeOps website using synthetic manufacturing data.
+
+The primary manual test used:
+
+```text
+Production Run #3
+Work Order: WO-2026-0003
+```
+
+Before the pause action:
+
+```text
+Status: ACTIVE
+Started: 13 Aug 2026, 5:23 p.m.
+Ended: Not ended
+```
+
+The authorised User was presented with:
+
+```text
+Pause Production Run
+```
+
+After submitting the pause action:
+
+```text
+Status: PAUSED
+Started: 13 Aug 2026, 5:23 p.m.
+Ended: Not ended
+```
+
+The test demonstrated that:
+
+1. An ACTIVE ProductionRun displays the Pause Production Run action to an authorised User.
+2. The pause action submits successfully through POST.
+3. The ProductionRun changes from ACTIVE to PAUSED.
+4. The existing `started_at` timestamp remains unchanged.
+5. `ended_at` remains unchanged.
+6. The Pause Production Run action disappears after the transition.
+7. The Start Production Run action is not displayed for the PAUSED run.
+8. Direct GET access to the pause endpoint returns 403 Forbidden.
+9. The Operator role does not receive the Pause Production Run action for an ACTIVE ProductionRun.
+
+Operator permission behaviour was manually verified using:
+
+```text
+operator_demo
+```
+
+against synthetic:
+
+```text
+Production Run #1
+```
+
+Production Run #1 remained ACTIVE while the Operator received no Pause Production Run action.
+
+All records used for manual FO-014 verification were synthetic.
+
+## Automated FO-014 Validation
+
+FO-014 adds nine ProductionRun pause workflow tests to:
+
+```text
+core/tests.py
+```
+
+The existing ProductionRun interface test class now contains:
+
+```text
+31 tests
+```
+
+The dedicated interface test run produced:
+
+```text
+Ran 31 tests
+OK
+```
+
+FO-014 automated tests verify:
+
+- Production Supervisor sees the Pause Production Run action for an ACTIVE ProductionRun
+- Pause Production Run action is hidden for a PLANNED ProductionRun
+- Operator cannot pause a ProductionRun
+- ProductionRun pause requires POST
+- Production Supervisor may pause a valid ACTIVE ProductionRun
+- successful pause preserves `started_at`
+- successful pause preserves `ended_at`
+- a PAUSED ProductionRun cannot be paused again
+- a PLANNED ProductionRun cannot be paused
+- a COMPLETED ProductionRun cannot be paused
+- a CANCELLED ProductionRun cannot be paused
+
+Several related assertions are combined within individual tests.
+
+## Full Core Validation
+
+The full Core test suite after FO-014 produced:
+
+```text
+Ran 178 tests
+OK
+```
+
+FO-014 therefore adds nine automated tests while preserving the existing 169-test FO-013 baseline.
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-014 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-014 migration is required.
+
+## FO-014 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+docs/database-design.md
+```
+
+## FO-014 Acceptance Criteria Verified
+
+- ProductionRun pause workflow is implemented.
+- Only authorised Users may pause ProductionRuns.
+- Pause operation requires POST.
+- Only ACTIVE ProductionRuns may be paused.
+- Successful pause changes status to PAUSED.
+- Successful pause preserves `started_at`.
+- Successful pause preserves `ended_at`.
+- Pause action is displayed only for eligible ACTIVE ProductionRuns.
+- Operators cannot pause ProductionRuns.
+- Direct GET access to the pause endpoint returns 403 Forbidden.
+- PAUSED ProductionRuns cannot be paused again.
+- PLANNED ProductionRuns cannot be paused.
+- COMPLETED ProductionRuns cannot be paused.
+- CANCELLED ProductionRuns cannot be paused.
+- Existing ProductionEntry ACTIVE-status validation remains unchanged.
+- Existing DowntimeEvent ACTIVE-status validation remains unchanged.
+- No automatic DowntimeEvent creation is introduced.
+- No automatic AuditEvent creation is introduced.
+- Existing database constraints remain authoritative.
+- No database migration is introduced.
+- Manual verification uses synthetic manufacturing data.
+- 31 ProductionRun interface tests pass.
+- 178 Core tests pass.
+- Django system checks pass.
+- Migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-014 Out of Scope
+
+FO-014 does not implement:
+
+- ProductionRun resume workflow
+- ProductionRun completion workflow
+- ProductionRun cancellation workflow
+- ProductionRun editing
+- ProductionRun deletion
+- pause reason recording
+- pause duration tracking
+- Operator assignment
+- ProductionEntry website workflow
+- DowntimeEvent website workflow
+- QualityInspection website workflow
+- automatic DowntimeEvent creation
+- automatic ProductionRun pause from DowntimeEvent creation
+- automatic ProductionRun resume from DowntimeEvent closure
+- automatic AuditEvent creation for ProductionRun pause actions
+- automatic WorkOrder status changes
+- machine integration
+- MES integration
+- REST API endpoints
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
