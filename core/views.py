@@ -59,6 +59,18 @@ def user_can_start_production_runs(user):
     ).exists()
 
 
+def user_can_pause_production_runs(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
 @login_required
 def dashboard_router(request):
     if request.user.is_superuser:
@@ -282,6 +294,9 @@ def production_run_detail(request, pk):
             "can_start_production_runs": user_can_start_production_runs(
                 request.user
             ),
+            "can_pause_production_runs": user_can_pause_production_runs(
+                request.user
+            ),
         },
     )
 
@@ -321,6 +336,7 @@ def production_run_create(request, work_order_pk):
             "work_order": work_order,
         },
     )
+
 
 @login_required
 def production_run_start(request, pk):
@@ -368,6 +384,44 @@ def production_run_start(request, pk):
             "status",
             "started_at",
             "ended_at",
+            "updated_at",
+        ]
+    )
+
+    return redirect(
+        "production-run-detail",
+        pk=production_run.pk,
+    )
+
+
+@login_required
+def production_run_pause(request, pk):
+    if not user_can_pause_production_runs(request.user):
+        raise PermissionDenied(
+            "You do not have permission to pause Production Runs."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun,
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Production Runs may only be paused using POST."
+        )
+
+    if production_run.status != ProductionRun.Status.ACTIVE:
+        raise PermissionDenied(
+            "Only ACTIVE Production Runs may be paused."
+        )
+
+    production_run.status = ProductionRun.Status.PAUSED
+
+    production_run.full_clean()
+    production_run.save(
+        update_fields=[
+            "status",
             "updated_at",
         ]
     )
