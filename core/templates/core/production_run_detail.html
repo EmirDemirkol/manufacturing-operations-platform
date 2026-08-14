@@ -320,6 +320,23 @@
                         </button>
                     </form>
                 {% endif %}
+
+                {% if can_resume_production_runs and production_run.status == "PAUSED" %}
+                    <form
+                        class="action-form"
+                        method="post"
+                        action="{% url 'production-run-resume' production_run.pk %}"
+                    >
+                        {% csrf_token %}
+
+                        <button
+                            class="button button-primary"
+                            type="submit"
+                        >
+                            Resume Production Run
+                        </button>
+                    </form>
+                {% endif %}
             </div>
         </div>
 

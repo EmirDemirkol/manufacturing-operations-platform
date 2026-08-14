@@ -71,6 +71,18 @@ def user_can_pause_production_runs(user):
     ).exists()
 
 
+def user_can_resume_production_runs(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
 @login_required
 def dashboard_router(request):
     if request.user.is_superuser:
@@ -297,6 +309,9 @@ def production_run_detail(request, pk):
             "can_pause_production_runs": user_can_pause_production_runs(
                 request.user
             ),
+            "can_resume_production_runs": user_can_resume_production_runs(
+                request.user
+            ),
         },
     )
 
@@ -417,6 +432,58 @@ def production_run_pause(request, pk):
         )
 
     production_run.status = ProductionRun.Status.PAUSED
+
+    production_run.full_clean()
+    production_run.save(
+        update_fields=[
+            "status",
+            "updated_at",
+        ]
+    )
+
+    return redirect(
+        "production-run-detail",
+        pk=production_run.pk,
+    )
+
+
+@login_required
+def production_run_resume(request, pk):
+    if not user_can_resume_production_runs(request.user):
+        raise PermissionDenied(
+            "You do not have permission to resume Production Runs."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun,
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Production Runs may only be resumed using POST."
+        )
+
+    if production_run.status != ProductionRun.Status.PAUSED:
+        raise PermissionDenied(
+            "Only PAUSED Production Runs may be resumed."
+        )
+
+    active_run_exists = (
+        ProductionRun.objects.filter(
+            work_order=production_run.work_order,
+            status=ProductionRun.Status.ACTIVE,
+        )
+        .exclude(pk=production_run.pk)
+        .exists()
+    )
+
+    if active_run_exists:
+        raise PermissionDenied(
+            "This Work Order already has an ACTIVE Production Run."
+        )
+
+    production_run.status = ProductionRun.Status.ACTIVE
 
     production_run.full_clean()
     production_run.save(
