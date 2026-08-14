@@ -337,6 +337,23 @@
                         </button>
                     </form>
                 {% endif %}
+
+                {% if can_complete_production_runs and production_run.status == "ACTIVE" %}
+                    <form
+                        class="action-form"
+                        method="post"
+                        action="{% url 'production-run-complete' production_run.pk %}"
+                    >
+                        {% csrf_token %}
+
+                        <button
+                            class="button button-primary"
+                            type="submit"
+                        >
+                            Complete Production Run
+                        </button>
+                    </form>
+                {% endif %}
             </div>
         </div>
 
