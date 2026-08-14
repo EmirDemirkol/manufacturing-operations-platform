@@ -4180,3 +4180,501 @@ FO-014 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 23. FO-015 Current State
+
+## FO-015: Implement Production Run Resume Workflow
+
+FO-015 introduces the ProductionRun resume lifecycle action through the ForgeOps website.
+
+The existing ProductionRun model remains unchanged.
+
+No database migration is required because the existing ProductionRun status set already includes:
+
+```text
+PAUSED
+ACTIVE
+```
+
+## ProductionRun Resume Workflow
+
+An authorised User may resume an existing PAUSED ProductionRun through the ProductionRun detail page.
+
+The workflow is:
+
+```text
+PAUSED ProductionRun
+        |
+        v
+Resume Production Run
+        |
+        v
+POST request
+        |
+        v
+Permission validation
+        |
+        v
+ProductionRun state validation
+        |
+        v
+Active-run conflict validation
+        |
+        v
+ACTIVE
+```
+
+Resuming a ProductionRun changes:
+
+```text
+status -> ACTIVE
+```
+
+The existing lifecycle timestamps are preserved.
+
+Successful resume therefore leaves:
+
+```text
+started_at -> unchanged
+ended_at   -> unchanged
+```
+
+Resuming a ProductionRun does not create a new start timestamp and does not end the run.
+
+After a successful resume, the User is redirected back to the ProductionRun detail page.
+
+## Resume Permissions
+
+ProductionRun resume permission is granted to:
+
+- Production Supervisor
+- System Administrator
+- Django superuser
+
+Operators may inspect ProductionRuns but may not resume them.
+
+Unauthorised resume attempts return:
+
+```text
+403 Forbidden
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+FO-015 does not introduce a separate permission system.
+
+## HTTP Method Requirement
+
+ProductionRun resume changes application state and therefore requires:
+
+```text
+POST
+```
+
+The ProductionRun detail page submits the resume action through a POST form protected by Django CSRF validation.
+
+A direct GET request to the resume endpoint is rejected with:
+
+```text
+403 Forbidden
+```
+
+The ProductionRun remains unchanged.
+
+## ProductionRun State Requirement
+
+Only ProductionRuns currently in:
+
+```text
+PAUSED
+```
+
+status may be resumed.
+
+Resume attempts are rejected for ProductionRuns in:
+
+```text
+PLANNED
+ACTIVE
+COMPLETED
+CANCELLED
+```
+
+Invalid transition attempts return:
+
+```text
+403 Forbidden
+```
+
+and do not change the ProductionRun state.
+
+## Active ProductionRun Conflict Protection
+
+The existing ProductionRun business rule permits only one ACTIVE ProductionRun for a WorkOrder at a time.
+
+Before resuming a PAUSED ProductionRun, ForgeOps checks whether another ProductionRun for the same WorkOrder is already:
+
+```text
+ACTIVE
+```
+
+If another ACTIVE ProductionRun exists, the resume request is rejected with:
+
+```text
+403 Forbidden
+```
+
+The original ProductionRun remains:
+
+```text
+PAUSED
+```
+
+This application-level validation prevents the existing active-run rule from surfacing as an uncontrolled model or database error during the website workflow.
+
+The existing database constraint remains unchanged and authoritative.
+
+## ProductionRun Detail Integration
+
+For an authorised User, the ProductionRun detail page displays:
+
+```text
+Resume Production Run
+```
+
+only when the ProductionRun status is:
+
+```text
+PAUSED
+```
+
+After a successful resume:
+
+- status displays as Active
+- the original `started_at` timestamp remains unchanged
+- `ended_at` remains unchanged
+- the Resume Production Run action disappears
+- the Pause Production Run action becomes available
+- the Start Production Run action remains unavailable
+
+The ProductionRun detail page therefore reflects the current lifecycle state of the ProductionRun.
+
+## Existing ProductionEntry Behaviour
+
+FO-015 does not introduce new ProductionEntry validation.
+
+The existing ProductionEntry model permits new entries only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a successfully resumed ProductionRun naturally becomes eligible for ProductionEntry records again through the existing model rule.
+
+FO-015 does not duplicate this validation in the resume view.
+
+## Existing DowntimeEvent Behaviour
+
+FO-015 does not introduce new DowntimeEvent validation.
+
+The existing DowntimeEvent model permits new downtime events to be opened only against ProductionRuns with:
+
+```text
+ACTIVE
+```
+
+status.
+
+Therefore a successfully resumed ProductionRun naturally becomes eligible for new DowntimeEvent records again through the existing model rule.
+
+FO-015 does not duplicate this validation in the resume view.
+
+## Downtime Independence
+
+FO-015 does not automatically resume a ProductionRun when a DowntimeEvent is closed.
+
+The unresolved business question around:
+
+```text
+automatic resume when downtime closes
+```
+
+remains unresolved and is not changed by FO-015.
+
+The FO-015 resume workflow is an explicit authorised User action.
+
+## AuditEvent Behaviour
+
+FO-015 does not automatically create an AuditEvent when a ProductionRun is resumed.
+
+The existing FO-010 AuditEvent architecture remains unchanged.
+
+Automatic lifecycle audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
+
+## Manual FO-015 Verification
+
+FO-015 was manually verified through the ForgeOps website using synthetic manufacturing data.
+
+The primary successful resume test used:
+
+```text
+Production Run #3
+Work Order: WO-2026-0003
+```
+
+Before resume:
+
+```text
+Status: PAUSED
+Started: 13 Aug 2026, 5:23 p.m.
+Ended: Not ended
+```
+
+The authorised User was presented with:
+
+```text
+Resume Production Run
+```
+
+After submitting the resume action:
+
+```text
+Status: ACTIVE
+Started: 13 Aug 2026, 5:23 p.m.
+Ended: Not ended
+```
+
+The test demonstrated that:
+
+1. A PAUSED ProductionRun displays the Resume Production Run action to an authorised User.
+2. The resume action submits successfully through POST.
+3. The ProductionRun changes from PAUSED to ACTIVE.
+4. The original `started_at` timestamp remains unchanged.
+5. `ended_at` remains unchanged.
+6. The Resume Production Run action disappears after the transition.
+7. The Pause Production Run action becomes available after the transition.
+8. The Start Production Run action remains unavailable.
+9. Direct GET access to the resume endpoint returns 403 Forbidden.
+
+Operator permission behaviour was manually verified using:
+
+```text
+operator_demo
+```
+
+against synthetic:
+
+```text
+Production Run #3
+```
+
+while the ProductionRun was PAUSED.
+
+The Operator received no Resume Production Run action.
+
+## Manual Active-Run Conflict Verification
+
+FO-015 active-run conflict protection was manually verified using synthetic:
+
+```text
+Work Order: WO-2026-0001
+```
+
+The test setup was:
+
+```text
+Production Run #1 -> PAUSED
+Production Run #2 -> ACTIVE
+```
+
+Both ProductionRuns belonged to the same WorkOrder.
+
+An authorised User then attempted:
+
+```text
+Resume Production Run #1
+```
+
+The request returned:
+
+```text
+403 Forbidden
+```
+
+The blocked ProductionRun remained:
+
+```text
+PAUSED
+```
+
+while the other ProductionRun remained:
+
+```text
+ACTIVE
+```
+
+This confirms the resume workflow preserves the one-ACTIVE-run-per-WorkOrder rule.
+
+All records used for manual FO-015 verification were synthetic.
+
+## Automated FO-015 Validation
+
+FO-015 adds eleven ProductionRun resume workflow tests to:
+
+```text
+core/tests.py
+```
+
+The existing ProductionRun interface test class now contains:
+
+```text
+42 tests
+```
+
+The dedicated interface test run produced:
+
+```text
+Ran 42 tests
+OK
+```
+
+FO-015 automated tests verify:
+
+- Production Supervisor sees the Resume Production Run action for a PAUSED ProductionRun
+- Resume Production Run action is hidden for an ACTIVE ProductionRun
+- Resume Production Run action is hidden for a PLANNED ProductionRun
+- Operator cannot resume a ProductionRun
+- ProductionRun resume requires POST
+- Production Supervisor may resume a valid PAUSED ProductionRun
+- successful resume changes status to ACTIVE
+- successful resume preserves `started_at`
+- successful resume preserves `ended_at`
+- an ACTIVE ProductionRun cannot be resumed
+- a PLANNED ProductionRun cannot be resumed
+- a COMPLETED ProductionRun cannot be resumed
+- a CANCELLED ProductionRun cannot be resumed
+- resume is blocked when another ACTIVE ProductionRun exists for the same WorkOrder
+- a blocked resume leaves the original ProductionRun PAUSED
+- the conflicting ProductionRun remains ACTIVE
+
+Several related assertions are combined within individual tests.
+
+## Full Core Validation
+
+The full Core test suite after FO-015 produced:
+
+```text
+Ran 189 tests
+OK
+```
+
+FO-015 therefore adds eleven automated tests while preserving the existing 178-test FO-014 baseline.
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-015 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-015 migration is required.
+
+## FO-015 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+docs/database-design.md
+```
+
+## FO-015 Acceptance Criteria Verified
+
+- ProductionRun resume workflow is implemented.
+- Only authorised Users may resume ProductionRuns.
+- Resume operation requires POST.
+- Only PAUSED ProductionRuns may be resumed.
+- Successful resume changes status to ACTIVE.
+- Successful resume preserves the original `started_at`.
+- Successful resume preserves `ended_at`.
+- Resume action is displayed only for eligible PAUSED ProductionRuns.
+- Operators cannot resume ProductionRuns.
+- Direct GET access to the resume endpoint returns 403 Forbidden.
+- ACTIVE ProductionRuns cannot be resumed.
+- PLANNED ProductionRuns cannot be resumed.
+- COMPLETED ProductionRuns cannot be resumed.
+- CANCELLED ProductionRuns cannot be resumed.
+- Resume is blocked when another ACTIVE ProductionRun exists for the same WorkOrder.
+- Active-run conflicts return controlled 403 responses.
+- Blocked resume leaves the ProductionRun PAUSED.
+- Existing FO-013 Start workflow remains functional.
+- Existing FO-014 Pause workflow remains functional.
+- Existing database constraints remain authoritative.
+- Existing ProductionEntry ACTIVE-status validation remains unchanged.
+- Existing DowntimeEvent ACTIVE-status validation remains unchanged.
+- No automatic DowntimeEvent behaviour is introduced.
+- No automatic AuditEvent creation is introduced.
+- No automatic WorkOrder status changes are introduced.
+- No database migration is introduced.
+- Manual verification uses synthetic manufacturing data.
+- 42 ProductionRun interface tests pass.
+- 189 Core tests pass.
+- Django system checks pass.
+- Migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-015 Out of Scope
+
+FO-015 does not implement:
+
+- ProductionRun completion workflow
+- ProductionRun cancellation workflow
+- ProductionRun editing
+- ProductionRun deletion
+- pause reason recording
+- pause duration tracking
+- Operator assignment
+- ProductionEntry website workflow
+- DowntimeEvent website workflow
+- QualityInspection website workflow
+- automatic DowntimeEvent creation
+- automatic ProductionRun pause from DowntimeEvent creation
+- automatic ProductionRun resume from DowntimeEvent closure
+- automatic AuditEvent creation for ProductionRun resume actions
+- automatic WorkOrder status changes
+- machine integration
+- MES integration
+- REST API endpoints
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
