@@ -2,6 +2,7 @@ from django import forms
 
 from .models import (
     Product,
+    ProductionEntry,
     ProductionLine,
     ProductionRun,
     Shift,
@@ -69,3 +70,26 @@ class ProductionRunForm(forms.ModelForm):
             Shift.objects.filter(is_active=True)
             .order_by("name")
         )
+
+
+class ProductionEntryForm(forms.ModelForm):
+    class Meta:
+        model = ProductionEntry
+        fields = [
+            "good_quantity",
+            "rejected_quantity",
+        ]
+        widgets = {
+            "good_quantity": forms.NumberInput(
+                attrs={
+                    "min": 0,
+                    "step": 1,
+                },
+            ),
+            "rejected_quantity": forms.NumberInput(
+                attrs={
+                    "min": 0,
+                    "step": 1,
+                },
+            ),
+        }
