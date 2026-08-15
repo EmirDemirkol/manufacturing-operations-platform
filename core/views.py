@@ -95,6 +95,18 @@ def user_can_complete_production_runs(user):
     ).exists()
 
 
+def user_can_cancel_production_runs(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
 @login_required
 def dashboard_router(request):
     if request.user.is_superuser:
@@ -329,6 +341,11 @@ def production_run_detail(request, pk):
                     request.user
                 )
             ),
+            "can_cancel_production_runs": (
+                user_can_cancel_production_runs(
+                    request.user
+                )
+            ),
         },
     )
 
@@ -549,6 +566,66 @@ def production_run_complete(request, pk):
             "updated_at",
         ]
     )
+
+    return redirect(
+        "production-run-detail",
+        pk=production_run.pk,
+    )
+
+
+@login_required
+def production_run_cancel(request, pk):
+    if not user_can_cancel_production_runs(request.user):
+        raise PermissionDenied(
+            "You do not have permission to cancel Production Runs."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun,
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Production Runs may only be cancelled using POST."
+        )
+
+    if production_run.status not in [
+        ProductionRun.Status.PLANNED,
+        ProductionRun.Status.ACTIVE,
+        ProductionRun.Status.PAUSED,
+    ]:
+        raise PermissionDenied(
+            "Only PLANNED, ACTIVE or PAUSED Production Runs may be cancelled."
+        )
+
+    previous_status = production_run.status
+
+    production_run.status = ProductionRun.Status.CANCELLED
+
+    if previous_status in [
+        ProductionRun.Status.ACTIVE,
+        ProductionRun.Status.PAUSED,
+    ]:
+        production_run.ended_at = timezone.now()
+
+    production_run.full_clean()
+
+    if previous_status == ProductionRun.Status.PLANNED:
+        production_run.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ]
+        )
+    else:
+        production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
 
     return redirect(
         "production-run-detail",
