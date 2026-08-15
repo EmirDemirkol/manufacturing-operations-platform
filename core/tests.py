@@ -2067,3 +2067,398 @@ class ProductionRunInterfaceTests(TestCase):
         self.assertIsNone(
             self.active_production_run.ended_at
         )
+
+    def test_supervisor_sees_cancel_button_for_planned_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Cancel Production Run",
+        )
+
+    def test_supervisor_sees_cancel_button_for_active_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Cancel Production Run",
+        )
+
+    def test_supervisor_sees_cancel_button_for_paused_production_run(self):
+        self.active_production_run.status = ProductionRun.Status.PAUSED
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Cancel Production Run",
+        )
+
+    def test_cancel_button_is_not_shown_for_completed_production_run(self):
+        self.active_production_run.status = ProductionRun.Status.COMPLETED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Cancel Production Run",
+        )
+
+    def test_cancel_button_is_not_shown_for_cancelled_production_run(self):
+        self.active_production_run.status = ProductionRun.Status.CANCELLED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Cancel Production Run",
+        )
+
+    def test_operator_cannot_cancel_production_run(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+        self.assertIsNone(
+            self.active_production_run.ended_at
+        )
+
+    def test_production_run_cancel_requires_post(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+        self.assertIsNone(
+            self.active_production_run.ended_at
+        )
+
+    def test_supervisor_can_cancel_planned_production_run(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.planned_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            ),
+        )
+        self.assertEqual(
+            self.planned_production_run.status,
+            ProductionRun.Status.CANCELLED,
+        )
+        self.assertIsNone(
+            self.planned_production_run.started_at
+        )
+        self.assertIsNone(
+            self.planned_production_run.ended_at
+        )
+
+    def test_supervisor_can_cancel_active_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            ),
+        )
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.CANCELLED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNotNone(
+            self.active_production_run.ended_at
+        )
+        self.assertGreaterEqual(
+            self.active_production_run.ended_at,
+            started_at,
+        )
+
+    def test_supervisor_can_cancel_paused_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.status = ProductionRun.Status.PAUSED
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            ),
+        )
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.CANCELLED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNotNone(
+            self.active_production_run.ended_at
+        )
+        self.assertGreaterEqual(
+            self.active_production_run.ended_at,
+            started_at,
+        )
+
+    def test_completed_production_run_cannot_be_cancelled(self):
+        started_at = timezone.now()
+        ended_at = timezone.now()
+
+        self.active_production_run.status = ProductionRun.Status.COMPLETED
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = ended_at
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.COMPLETED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertEqual(
+            self.active_production_run.ended_at,
+            ended_at,
+        )
+
+    def test_cancelled_production_run_cannot_be_cancelled_again(self):
+        started_at = timezone.now()
+        ended_at = timezone.now()
+
+        self.active_production_run.status = ProductionRun.Status.CANCELLED
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = ended_at
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.CANCELLED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertEqual(
+            self.active_production_run.ended_at,
+            ended_at,
+        )

@@ -354,6 +354,25 @@
                         </button>
                     </form>
                 {% endif %}
+
+                {% if can_cancel_production_runs %}
+                    {% if production_run.status == "PLANNED" or production_run.status == "ACTIVE" or production_run.status == "PAUSED" %}
+                        <form
+                            class="action-form"
+                            method="post"
+                            action="{% url 'production-run-cancel' production_run.pk %}"
+                        >
+                            {% csrf_token %}
+
+                            <button
+                                class="button button-primary"
+                                type="submit"
+                            >
+                                Cancel Production Run
+                            </button>
+                        </form>
+                    {% endif %}
+                {% endif %}
             </div>
         </div>
 
