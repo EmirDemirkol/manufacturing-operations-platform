@@ -93,6 +93,18 @@
             color: #38bdf8;
         }
 
+        .button-danger {
+            border-color: #f87171;
+            background: transparent;
+            color: #f87171;
+            font-weight: 700;
+        }
+
+        .button-danger:hover {
+            background: #f87171;
+            color: #071019;
+        }
+
         .action-form {
             margin: 0;
         }
@@ -166,8 +178,19 @@
             font-weight: 700;
         }
 
+        .status-open {
+            border-color: #f59e0b;
+            color: #fbbf24;
+        }
+
+        .status-closed {
+            border-color: #22c55e;
+            color: #86efac;
+        }
+
         .notes-card,
-        .entries-card {
+        .entries-card,
+        .downtime-card {
             margin-bottom: 24px;
             padding: 22px;
             border: 1px solid #2a4150;
@@ -176,7 +199,8 @@
         }
 
         .notes-card h2,
-        .entries-card h2 {
+        .entries-card h2,
+        .downtime-card h2 {
             margin-top: 0;
         }
 
@@ -212,7 +236,8 @@
             font-weight: 800;
         }
 
-        .entries-header {
+        .entries-header,
+        .downtime-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -220,11 +245,13 @@
             margin-bottom: 18px;
         }
 
-        .entries-header h2 {
+        .entries-header h2,
+        .downtime-header h2 {
             margin: 0;
         }
 
-        .entry-list {
+        .entry-list,
+        .downtime-list {
             display: grid;
             gap: 12px;
         }
@@ -237,6 +264,48 @@
             border: 1px solid #2a4150;
             border-radius: 10px;
             background: #0c1922;
+        }
+
+        .downtime-row {
+            padding: 18px;
+            border: 1px solid #2a4150;
+            border-radius: 10px;
+            background: #0c1922;
+        }
+
+        .downtime-row-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .downtime-reason {
+            margin: 0 0 6px;
+            font-size: 17px;
+            font-weight: 800;
+        }
+
+        .downtime-reason-name {
+            margin: 0;
+            color: #a9bac5;
+        }
+
+        .downtime-details {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+
+        .downtime-notes {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #263b49;
+        }
+
+        .downtime-notes p:last-child {
+            margin-bottom: 0;
         }
 
         .entry-label {
@@ -281,6 +350,10 @@
             .entry-row {
                 grid-template-columns: repeat(2, 1fr);
             }
+
+            .downtime-details {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
 
         @media (max-width: 520px) {
@@ -304,7 +377,13 @@
                 grid-template-columns: 1fr;
             }
 
-            .entries-header {
+            .downtime-details {
+                grid-template-columns: 1fr;
+            }
+
+            .entries-header,
+            .downtime-header,
+            .downtime-row-header {
                 align-items: flex-start;
                 flex-direction: column;
             }
@@ -442,6 +521,15 @@
                         href="{% url 'production-entry-create' production_run.pk %}"
                     >
                         Record Production Entry
+                    </a>
+                {% endif %}
+
+                {% if can_manage_downtime_events and production_run.status == "ACTIVE" and not open_downtime_exists %}
+                    <a
+                        class="button button-primary"
+                        href="{% url 'downtime-event-create' production_run.pk %}"
+                    >
+                        Open Downtime Event
                     </a>
                 {% endif %}
             </div>
@@ -646,6 +734,138 @@
             {% else %}
                 <p class="empty-state">
                     No production entries recorded.
+                </p>
+            {% endif %}
+        </section>
+
+        <section class="downtime-card">
+            <div class="downtime-header">
+                <h2>Downtime Events</h2>
+
+                {% if can_manage_downtime_events and production_run.status == "ACTIVE" and not open_downtime_exists %}
+                    <a
+                        class="button button-primary"
+                        href="{% url 'downtime-event-create' production_run.pk %}"
+                    >
+                        Open Downtime Event
+                    </a>
+                {% endif %}
+            </div>
+
+            {% if downtime_events %}
+                <div class="downtime-list">
+                    {% for event in downtime_events %}
+                        <article class="downtime-row">
+                            <div class="downtime-row-header">
+                                <div>
+                                    <p class="downtime-reason">
+                                        {{ event.downtime_reason.code }}
+                                    </p>
+
+                                    <p class="downtime-reason-name">
+                                        {{ event.downtime_reason.name }}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    {% if event.ended_at %}
+                                        <span class="status status-closed">
+                                            Closed
+                                        </span>
+                                    {% else %}
+                                        <span class="status status-open">
+                                            Open
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="downtime-details">
+                                <div>
+                                    <p class="entry-label">
+                                        Started At
+                                    </p>
+
+                                    <p class="entry-value">
+                                        {{ event.started_at }}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <p class="entry-label">
+                                        Ended At
+                                    </p>
+
+                                    <p class="entry-value">
+                                        {% if event.ended_at %}
+                                            {{ event.ended_at }}
+                                        {% else %}
+                                            Not ended
+                                        {% endif %}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <p class="entry-label">
+                                        Opened By
+                                    </p>
+
+                                    <p class="entry-value">
+                                        {{ event.opened_by.username }}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <p class="entry-label">
+                                        Closed By
+                                    </p>
+
+                                    <p class="entry-value">
+                                        {% if event.closed_by %}
+                                            {{ event.closed_by.username }}
+                                        {% else %}
+                                            Not closed
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {% if event.notes %}
+                                <div class="downtime-notes">
+                                    <p class="entry-label">
+                                        Notes
+                                    </p>
+
+                                    <p>
+                                        {{ event.notes }}
+                                    </p>
+                                </div>
+                            {% endif %}
+
+                            {% if can_manage_downtime_events and not event.ended_at %}
+                                <div class="downtime-notes">
+                                    <form
+                                        class="action-form"
+                                        method="post"
+                                        action="{% url 'downtime-event-close' event.pk %}"
+                                    >
+                                        {% csrf_token %}
+
+                                        <button
+                                            class="button button-danger"
+                                            type="submit"
+                                        >
+                                            Close Downtime Event
+                                        </button>
+                                    </form>
+                                </div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="empty-state">
+                    No downtime events recorded.
                 </p>
             {% endif %}
         </section>
