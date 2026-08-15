@@ -3,9 +3,14 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .forms import ProductionRunForm, WorkOrderForm
+from .forms import (
+    ProductionEntryForm,
+    ProductionRunForm,
+    WorkOrderForm,
+)
 from .models import (
     Product,
+    ProductionEntry,
     ProductionLine,
     ProductionRun,
     Shift,
@@ -101,6 +106,19 @@ def user_can_cancel_production_runs(user):
 
     return user.groups.filter(
         name__in=[
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
+def user_can_create_production_entries(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Operator",
             "Production Supervisor",
             "System Administrator",
         ]
@@ -322,11 +340,18 @@ def production_run_detail(request, pk):
         pk=pk,
     )
 
+    production_entries = (
+        production_run.production_entries.select_related(
+            "recorded_by"
+        ).all()
+    )
+
     return render(
         request,
         "core/production_run_detail.html",
         {
             "production_run": production_run,
+            "production_entries": production_entries,
             "can_start_production_runs": user_can_start_production_runs(
                 request.user
             ),
@@ -343,6 +368,11 @@ def production_run_detail(request, pk):
             ),
             "can_cancel_production_runs": (
                 user_can_cancel_production_runs(
+                    request.user
+                )
+            ),
+            "can_create_production_entries": (
+                user_can_create_production_entries(
                     request.user
                 )
             ),
@@ -383,6 +413,56 @@ def production_run_create(request, work_order_pk):
         {
             "form": form,
             "work_order": work_order,
+        },
+    )
+
+
+@login_required
+def production_entry_create(request, production_run_pk):
+    if not user_can_create_production_entries(request.user):
+        raise PermissionDenied(
+            "You do not have permission to record Production Entries."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun.objects.select_related(
+            "work_order__product",
+            "production_line__production_area__site",
+            "shift",
+        ),
+        pk=production_run_pk,
+    )
+
+    if production_run.status != ProductionRun.Status.ACTIVE:
+        raise PermissionDenied(
+            "Production Entries may only be recorded "
+            "against ACTIVE Production Runs."
+        )
+
+    if request.method == "POST":
+        form = ProductionEntryForm(request.POST)
+
+        if form.is_valid():
+            production_entry = form.save(commit=False)
+            production_entry.production_run = production_run
+            production_entry.recorded_by = request.user
+
+            production_entry.full_clean()
+            production_entry.save()
+
+            return redirect(
+                "production-run-detail",
+                pk=production_run.pk,
+            )
+    else:
+        form = ProductionEntryForm()
+
+    return render(
+        request,
+        "core/production_entry_form.html",
+        {
+            "form": form,
+            "production_run": production_run,
         },
     )
 
@@ -596,7 +676,8 @@ def production_run_cancel(request, pk):
         ProductionRun.Status.PAUSED,
     ]:
         raise PermissionDenied(
-            "Only PLANNED, ACTIVE or PAUSED Production Runs may be cancelled."
+            "Only PLANNED, ACTIVE or PAUSED Production Runs "
+            "may be cancelled."
         )
 
     previous_status = production_run.status

@@ -5276,10 +5276,6 @@ The existing ProductionRun model remains unchanged.
 No database migration is required because the existing ProductionRun status set already includes:
 
 ```text
-PLANNED
-ACTIVE
-PAUSED
-COMPLETED
 CANCELLED
 ```
 
@@ -5287,26 +5283,10 @@ CANCELLED
 
 An authorised User may cancel an eligible ProductionRun through the ProductionRun detail page.
 
-FO-017 permits cancellation from:
-
-```text
-PLANNED
-ACTIVE
-PAUSED
-```
-
-The supported transitions are:
-
-```text
-PLANNED -> CANCELLED
-ACTIVE  -> CANCELLED
-PAUSED  -> CANCELLED
-```
-
 The workflow is:
 
 ```text
-Eligible ProductionRun
+PLANNED / ACTIVE / PAUSED ProductionRun
         |
         v
 Cancel Production Run
@@ -5324,7 +5304,22 @@ ProductionRun state validation
 CANCELLED
 ```
 
-After a successful cancellation, the User is redirected back to the ProductionRun detail page.
+Cancellation is permitted from:
+
+```text
+PLANNED
+ACTIVE
+PAUSED
+```
+
+Cancellation is not permitted from:
+
+```text
+COMPLETED
+CANCELLED
+```
+
+After successful cancellation, the User is redirected back to the ProductionRun detail page.
 
 ## Cancellation Permissions
 
@@ -5364,9 +5359,9 @@ A direct GET request to the cancellation endpoint is rejected with:
 
 The ProductionRun remains unchanged.
 
-## ProductionRun State Requirements
+## ProductionRun State Requirement
 
-FO-017 allows cancellation only when the ProductionRun status is:
+Cancellation is allowed only when the ProductionRun currently has status:
 
 ```text
 PLANNED
@@ -5374,16 +5369,12 @@ ACTIVE
 PAUSED
 ```
 
-Cancellation attempts are rejected for ProductionRuns in:
+Cancellation attempts are rejected for:
 
 ```text
 COMPLETED
 CANCELLED
 ```
-
-A COMPLETED ProductionRun cannot be cancelled.
-
-A CANCELLED ProductionRun cannot be cancelled again.
 
 Invalid transition attempts return:
 
@@ -5391,11 +5382,13 @@ Invalid transition attempts return:
 403 Forbidden
 ```
 
-and do not change the ProductionRun state.
+and do not modify the existing ProductionRun state.
+
+A CANCELLED ProductionRun cannot be cancelled again.
+
+A COMPLETED ProductionRun cannot later be cancelled through FO-017.
 
 ## PLANNED Cancellation Behaviour
-
-A PLANNED ProductionRun has not started production.
 
 Cancelling a PLANNED ProductionRun changes:
 
@@ -5403,14 +5396,18 @@ Cancelling a PLANNED ProductionRun changes:
 status -> CANCELLED
 ```
 
-The lifecycle timestamps remain:
+A PLANNED ProductionRun has not started execution.
+
+Therefore cancellation leaves:
 
 ```text
 started_at -> None
 ended_at   -> None
 ```
 
-Successful PLANNED cancellation therefore produces:
+FO-017 does not create artificial execution timestamps for a ProductionRun that never started.
+
+Conceptually:
 
 ```text
 PLANNED
@@ -5423,8 +5420,6 @@ started_at = None
 ended_at   = None
 ```
 
-FO-017 does not generate an artificial start or end timestamp for a ProductionRun that never started.
-
 ## ACTIVE Cancellation Behaviour
 
 Cancelling an ACTIVE ProductionRun changes:
@@ -5434,46 +5429,86 @@ status   -> CANCELLED
 ended_at -> current application timestamp
 ```
 
-The original ProductionRun start timestamp is preserved.
+The original start timestamp is preserved.
 
-Successful ACTIVE cancellation therefore produces:
+Successful ACTIVE cancellation therefore leaves:
 
 ```text
-status     -> CANCELLED
 started_at -> unchanged
 ended_at   -> populated
 ```
 
-The generated end timestamp remains subject to the existing ProductionRun validation rule:
+Conceptually:
+
+```text
+ACTIVE
+   |
+   | Cancel
+   v
+CANCELLED
+
+started_at = original start timestamp
+ended_at   = cancellation timestamp
+```
+
+The existing ProductionRun timestamp validation remains authoritative:
 
 ```text
 ended_at >= started_at
 ```
 
-FO-017 does not replace or duplicate that existing model validation.
-
 ## PAUSED Cancellation Behaviour
 
-A PAUSED ProductionRun has already started but is temporarily paused.
+A PAUSED ProductionRun represents manufacturing execution that previously started but is temporarily suspended.
 
-Cancelling a PAUSED ProductionRun changes:
+Cancelling a PAUSED ProductionRun therefore changes:
 
 ```text
 status   -> CANCELLED
 ended_at -> current application timestamp
 ```
 
-The original ProductionRun start timestamp is preserved.
+The original start timestamp remains unchanged.
 
-Successful PAUSED cancellation therefore produces:
+Successful PAUSED cancellation therefore leaves:
 
 ```text
-status     -> CANCELLED
 started_at -> unchanged
 ended_at   -> populated
 ```
 
-This records the final termination time of a ProductionRun that had previously begun manufacturing execution.
+Conceptually:
+
+```text
+PAUSED
+   |
+   | Cancel
+   v
+CANCELLED
+
+started_at = original start timestamp
+ended_at   = cancellation timestamp
+```
+
+## Terminal Cancellation State
+
+After cancellation, the ProductionRun enters:
+
+```text
+CANCELLED
+```
+
+CANCELLED is treated as a terminal state by the currently implemented ProductionRun website lifecycle.
+
+A CANCELLED ProductionRun cannot currently be:
+
+- started
+- paused
+- resumed
+- completed
+- cancelled again
+
+FO-017 does not implement reopening a CANCELLED ProductionRun.
 
 ## ProductionRun Detail Integration
 
@@ -5483,7 +5518,7 @@ For an authorised User, the ProductionRun detail page displays:
 Cancel Production Run
 ```
 
-for ProductionRuns in:
+when the ProductionRun status is:
 
 ```text
 PLANNED
@@ -5491,23 +5526,23 @@ ACTIVE
 PAUSED
 ```
 
-The cancellation action is not displayed for:
+The cancellation action is not displayed when status is:
 
 ```text
 COMPLETED
 CANCELLED
 ```
 
-The action therefore follows the ProductionRun lifecycle state.
+The other lifecycle actions continue to follow their existing state requirements.
 
-An authorised User viewing a PLANNED ProductionRun may see:
+For PLANNED:
 
 ```text
 Start Production Run
 Cancel Production Run
 ```
 
-An authorised User viewing an ACTIVE ProductionRun may see:
+For ACTIVE:
 
 ```text
 Pause Production Run
@@ -5515,27 +5550,28 @@ Complete Production Run
 Cancel Production Run
 ```
 
-An authorised User viewing a PAUSED ProductionRun may see:
+For PAUSED:
 
 ```text
 Resume Production Run
 Cancel Production Run
 ```
 
-After a successful cancellation:
+For COMPLETED:
 
-- status displays as Cancelled
-- the Cancel Production Run action disappears
-- the Start Production Run action is unavailable
-- the Pause Production Run action is unavailable
-- the Resume Production Run action is unavailable
-- the Complete Production Run action is unavailable
+```text
+No currently implemented lifecycle action
+```
 
-A CANCELLED ProductionRun therefore exposes no currently implemented lifecycle action.
+For CANCELLED:
+
+```text
+No currently implemented lifecycle action
+```
 
 ## Existing Lifecycle Compatibility
 
-FO-017 preserves all ProductionRun lifecycle behaviour introduced by earlier issues.
+FO-017 preserves the ProductionRun lifecycle behaviour introduced by earlier issues.
 
 FO-013 implements:
 
@@ -5561,7 +5597,7 @@ FO-016 implements:
 ACTIVE -> COMPLETED
 ```
 
-FO-017 implements:
+FO-017 adds:
 
 ```text
 PLANNED -> CANCELLED
@@ -5569,52 +5605,38 @@ ACTIVE  -> CANCELLED
 PAUSED  -> CANCELLED
 ```
 
-The implemented ProductionRun lifecycle after FO-017 is:
+The implemented lifecycle after FO-017 is therefore:
 
 ```text
                     Cancel
-               ┌───────────────┐
-               │               v
-PLANNED ------> ACTIVE ------> CANCELLED
-   |              |
-   |              |
-   | Start        | Pause
-   |              v
-   |            PAUSED
-   |              |
-   |              | Resume
-   |              v
-   |            ACTIVE
-   |              |
-   |              | Complete
-   |              v
-   |          COMPLETED
-   |
-   | Cancel
-   v
-CANCELLED
+              ┌───────────────► CANCELLED
+              │
+           PLANNED
+              │
+              │ Start
+              ▼
+           ACTIVE ─────────────► CANCELLED
+              │     Cancel
+              │
+        ┌─────┴─────┐
+        │           │
+      Pause      Complete
+        │           │
+        ▼           ▼
+     PAUSED      COMPLETED
+        │
+        │ Resume
+        └────────► ACTIVE
+
+PAUSED ─────────────► CANCELLED
+          Cancel
 ```
 
-PAUSED ProductionRuns may also transition directly to:
-
-```text
-CANCELLED
-```
-
-through the FO-017 cancellation workflow.
-
-The terminal states currently implemented are:
-
-```text
-COMPLETED
-CANCELLED
-```
-
-Neither state exposes a reopening workflow.
+COMPLETED and CANCELLED are terminal states for the ProductionRun lifecycle currently implemented.
 
 ## Existing ProductionEntry Behaviour
 
-FO-017 does not introduce new ProductionEntry validation.
+FO-017 does not change ProductionEntry validation.
 
 The existing ProductionEntry model permits new ProductionEntry records only against ProductionRuns with:
 
@@ -5624,15 +5646,13 @@ ACTIVE
 
 status.
 
-Therefore a CANCELLED ProductionRun naturally rejects new ProductionEntry records through the existing model rule.
-
-FO-017 does not duplicate this validation in the cancellation view.
+Therefore a CANCELLED ProductionRun naturally rejects new ProductionEntry records through existing model validation.
 
 FO-017 does not introduce a ProductionEntry website workflow.
 
 ## Existing DowntimeEvent Behaviour
 
-FO-017 does not introduce new DowntimeEvent validation.
+FO-017 does not change DowntimeEvent validation.
 
 The existing DowntimeEvent model permits new DowntimeEvents to be opened only against ProductionRuns with:
 
@@ -5642,45 +5662,35 @@ ACTIVE
 
 status.
 
-Therefore a CANCELLED ProductionRun naturally rejects new DowntimeEvent creation through the existing model rule.
+Therefore a CANCELLED ProductionRun naturally rejects new DowntimeEvent creation.
 
-FO-017 does not duplicate this validation in the cancellation view.
+FO-017 does not automatically close an existing open DowntimeEvent during cancellation.
 
-## Downtime Independence
+FO-017 also does not block ProductionRun cancellation because an open DowntimeEvent exists.
 
-FO-017 does not automatically:
-
-- create a DowntimeEvent
-- close an existing DowntimeEvent
-- pause a ProductionRun when downtime opens
-- resume a ProductionRun when downtime closes
-
-FO-017 also does not introduce a new rule requiring all DowntimeEvents to be closed before cancellation.
-
-Any future rule linking DowntimeEvent state to ProductionRun cancellation must be implemented through a separate roadmap issue.
+Any future relationship between ProductionRun cancellation and DowntimeEvent closure must be explicitly defined through a later roadmap issue.
 
 ## QualityInspection Behaviour
 
-FO-017 does not introduce new QualityInspection rules.
+FO-017 does not modify QualityInspection behaviour.
 
-Existing QualityInspection model validation remains unchanged.
+Existing QualityInspection records remain associated with the ProductionRun.
 
-ProductionRun cancellation does not require:
+Cancellation does not:
 
-- completion of pending QualityInspection records
-- PASSED QualityInspection results
-- quality approval
-- quality rejection handling
+- delete QualityInspection records
+- automatically complete pending QualityInspections
+- automatically pass or fail QualityInspections
+- require QualityInspection approval
+- create new QualityInspection records
 
-QualityInspection state does not currently block ProductionRun cancellation.
-
-Any future relationship between quality state and ProductionRun cancellation must be explicitly defined and tested through a separate roadmap issue.
+QualityInspection workflow behaviour remains independent.
 
 ## WorkOrder Behaviour
 
-FO-017 does not automatically modify the status of the associated WorkOrder.
+FO-017 does not automatically modify the associated WorkOrder.
 
-Cancelling a ProductionRun does not automatically change its WorkOrder to:
+Cancelling a ProductionRun does not automatically change the WorkOrder to:
 
 ```text
 CANCELLED
@@ -5688,57 +5698,46 @@ CANCELLED
 
 or any other WorkOrder state.
 
-A WorkOrder may continue to contain other ProductionRuns.
+A WorkOrder may contain multiple ProductionRuns, so ProductionRun cancellation and WorkOrder cancellation are deliberately treated as separate concepts.
 
-Automatic WorkOrder lifecycle behaviour remains reserved for a future roadmap issue.
+Automatic WorkOrder lifecycle changes remain reserved for a future issue.
 
 ## AuditEvent Behaviour
 
 FO-017 does not automatically create an AuditEvent when a ProductionRun is cancelled.
 
-The existing FO-010 AuditEvent architecture already contains the controlled action type:
+The existing FO-010 AuditEvent architecture remains unchanged.
 
-```text
-CANCELLED
-```
-
-but automatic creation of lifecycle AuditEvent records is not introduced by FO-017.
-
-Automatic ProductionRun cancellation audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
+Automatic lifecycle audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
 
 ## Manual FO-017 Verification
 
 FO-017 was manually verified through the ForgeOps website using synthetic manufacturing data.
 
-The manual verification used the following synthetic ProductionRuns:
+### PLANNED Cancellation
+
+A synthetic ProductionRun was created for:
 
 ```text
-Production Run #4 -> PLANNED
-Production Run #5 -> ACTIVE
-Production Run #3 -> PAUSED
-Production Run #2 -> COMPLETED
+Work Order: WO-2026-0003
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Production Line: LINE-A01 - Line A
+Shift: Night Shift
 ```
 
-All test records used synthetic manufacturing information.
-
-### PLANNED Cancellation Verification
-
-The PLANNED cancellation test used:
+The new ProductionRun was:
 
 ```text
 Production Run #4
-Work Order: WO-2026-0003
-Production Line: LINE-A01 - Line A
-Shift: Night Shift
-Notes: Synthetic FO-017 PLANNED cancellation workflow test.
-```
-
-Before cancellation:
-
-```text
 Status: PLANNED
 Started: Not started
 Ended: Not ended
+```
+
+The notes were:
+
+```text
+Synthetic FO-017 PLANNED cancellation workflow test.
 ```
 
 The authorised User was presented with:
@@ -5748,45 +5747,36 @@ Start Production Run
 Cancel Production Run
 ```
 
-After submitting the cancellation action:
+After cancellation:
 
 ```text
+Production Run #4
 Status: CANCELLED
 Started: Not started
 Ended: Not ended
 ```
 
-The manual test demonstrated that:
+The lifecycle actions disappeared.
 
-- PLANNED ProductionRuns may be cancelled
-- status changes from PLANNED to CANCELLED
-- `started_at` remains empty
-- `ended_at` remains empty
-- Start Production Run disappears
-- Cancel Production Run disappears
-- no further lifecycle action is displayed
+This confirmed that cancelling an unstarted PLANNED ProductionRun does not fabricate start or end timestamps.
 
-### ACTIVE Cancellation Verification
+### ACTIVE Cancellation
 
-The ACTIVE cancellation test used:
+A second synthetic ProductionRun was created and started:
 
 ```text
 Production Run #5
 Work Order: WO-2026-0003
-Production Line: LINE-A01 - Line A
-Shift: Night Shift
-Notes: Synthetic FO-017 ACTIVE cancellation workflow test.
+Status: ACTIVE
 ```
 
-Before cancellation:
+The notes were:
 
 ```text
-Status: ACTIVE
-Started: 15 Aug 2026, 3:02 p.m.
-Ended: Not ended
+Synthetic FO-017 ACTIVE cancellation workflow test.
 ```
 
-The authorised User was presented with:
+Before cancellation, the page displayed:
 
 ```text
 Pause Production Run
@@ -5794,42 +5784,29 @@ Complete Production Run
 Cancel Production Run
 ```
 
-After submitting the cancellation action:
+The ProductionRun contained an existing start timestamp.
+
+After cancellation:
 
 ```text
 Status: CANCELLED
-Started: 15 Aug 2026, 3:02 p.m.
-Ended: 15 Aug 2026, 3:11 p.m.
+Started: original start timestamp preserved
+Ended: cancellation timestamp populated
 ```
 
-The manual test demonstrated that:
+All lifecycle actions disappeared.
 
-- ACTIVE ProductionRuns may be cancelled
-- status changes from ACTIVE to CANCELLED
-- the original `started_at` timestamp remains unchanged
-- `ended_at` is populated automatically
-- the generated `ended_at` occurs after `started_at`
-- Pause Production Run disappears
-- Complete Production Run disappears
-- Cancel Production Run disappears
-- no further lifecycle action is displayed
+This confirmed that ACTIVE cancellation preserves manufacturing start history and records the point at which execution was cancelled.
 
-### PAUSED Cancellation Verification
+### PAUSED Cancellation
 
-The PAUSED cancellation test used:
-
-```text
-Production Run #3
-Work Order: WO-2026-0003
-Production Line: LINE-A01 - Line A
-Shift: Night Shift
-```
+An existing synthetic PAUSED ProductionRun was also cancelled.
 
 Before cancellation:
 
 ```text
 Status: PAUSED
-Started: 13 Aug 2026, 5:23 p.m.
+Started: populated
 Ended: Not ended
 ```
 
@@ -5840,77 +5817,61 @@ Resume Production Run
 Cancel Production Run
 ```
 
-After submitting the cancellation action:
+After cancellation:
 
 ```text
 Status: CANCELLED
-Started: 13 Aug 2026, 5:23 p.m.
-Ended: 15 Aug 2026, 3:12 p.m.
+Started: original start timestamp preserved
+Ended: cancellation timestamp populated
 ```
 
-The manual test demonstrated that:
+### Terminal-State Verification
 
-- PAUSED ProductionRuns may be cancelled
-- status changes from PAUSED to CANCELLED
-- the original `started_at` timestamp remains unchanged
-- `ended_at` is populated automatically
-- Resume Production Run disappears
-- Cancel Production Run disappears
-- no further lifecycle action is displayed
+The existing synthetic ProductionRuns were manually inspected after cancellation.
 
-### COMPLETED Cancellation Protection
-
-The COMPLETED-state verification used:
+CANCELLED ProductionRuns displayed no:
 
 ```text
-Production Run #2
-Work Order: WO-2026-0001
-Status: COMPLETED
-```
-
-The ProductionRun detail page did not display:
-
-```text
+Start Production Run
+Pause Production Run
+Resume Production Run
+Complete Production Run
 Cancel Production Run
 ```
 
-Direct browser access to the cancellation endpoint using GET returned:
+actions.
 
-```text
-403 Forbidden
-```
+A previously COMPLETED ProductionRun also displayed no cancellation action.
 
-The ProductionRun remained COMPLETED.
+### Direct URL Verification
 
-### CANCELLED Cancellation Protection
+Direct GET access to the cancellation endpoint was manually attempted.
 
-Production Run #3 was tested again after successful cancellation.
-
-Direct browser access to:
+Example:
 
 ```text
 /production-runs/3/cancel/
 ```
 
-using GET returned:
+The request returned:
 
 ```text
 403 Forbidden
 ```
 
-The ProductionRun remained CANCELLED.
+This confirmed that ProductionRun cancellation cannot be triggered through ordinary GET navigation.
 
-All manual FO-017 verification used synthetic data.
+All records used for FO-017 manual verification were synthetic.
 
 ## Automated FO-017 Validation
 
-FO-017 adds twelve ProductionRun cancellation workflow tests to:
+FO-017 extends the existing ProductionRun interface tests in:
 
 ```text
 core/tests.py
 ```
 
-The existing ProductionRun interface test class now contains:
+The ProductionRun interface test class after FO-017 contains:
 
 ```text
 64 tests
@@ -5925,32 +5886,26 @@ OK
 
 FO-017 automated tests verify:
 
-- Production Supervisor sees the Cancel Production Run action for a PLANNED ProductionRun
-- Production Supervisor sees the Cancel Production Run action for an ACTIVE ProductionRun
-- Production Supervisor sees the Cancel Production Run action for a PAUSED ProductionRun
-- Cancel Production Run action is hidden for a COMPLETED ProductionRun
-- Cancel Production Run action is hidden for a CANCELLED ProductionRun
-- Operator cannot cancel a ProductionRun
-- ProductionRun cancellation requires POST
-- Production Supervisor may cancel a valid PLANNED ProductionRun
-- successful PLANNED cancellation changes status to CANCELLED
-- successful PLANNED cancellation preserves an empty `started_at`
-- successful PLANNED cancellation preserves an empty `ended_at`
-- Production Supervisor may cancel a valid ACTIVE ProductionRun
-- successful ACTIVE cancellation changes status to CANCELLED
-- successful ACTIVE cancellation preserves the original `started_at`
-- successful ACTIVE cancellation populates `ended_at`
-- generated ACTIVE cancellation `ended_at` is not earlier than `started_at`
-- Production Supervisor may cancel a valid PAUSED ProductionRun
-- successful PAUSED cancellation changes status to CANCELLED
-- successful PAUSED cancellation preserves the original `started_at`
-- successful PAUSED cancellation populates `ended_at`
-- generated PAUSED cancellation `ended_at` is not earlier than `started_at`
+- Production Supervisor sees Cancel Production Run for a PLANNED ProductionRun
+- Production Supervisor sees Cancel Production Run for an ACTIVE ProductionRun
+- Production Supervisor sees Cancel Production Run for a PAUSED ProductionRun
+- Operator does not receive ProductionRun cancellation permission
+- cancellation requires POST
+- Production Supervisor can cancel a PLANNED ProductionRun
+- PLANNED cancellation changes status to CANCELLED
+- PLANNED cancellation preserves an empty `started_at`
+- PLANNED cancellation preserves an empty `ended_at`
+- Production Supervisor can cancel an ACTIVE ProductionRun
+- ACTIVE cancellation changes status to CANCELLED
+- ACTIVE cancellation preserves the original `started_at`
+- ACTIVE cancellation populates `ended_at`
+- Production Supervisor can cancel a PAUSED ProductionRun
+- PAUSED cancellation changes status to CANCELLED
+- PAUSED cancellation preserves the original `started_at`
+- PAUSED cancellation populates `ended_at`
 - COMPLETED ProductionRuns cannot be cancelled
 - CANCELLED ProductionRuns cannot be cancelled again
-- rejected cancellation attempts preserve the existing ProductionRun state and timestamps
-
-Several related assertions are combined within individual tests.
+- rejected cancellation attempts preserve existing ProductionRun state
 
 ## Full Core Validation
 
@@ -5961,7 +5916,17 @@ Ran 211 tests in 20.685s
 OK
 ```
 
-FO-017 therefore adds twelve automated tests while preserving the existing 199-test FO-016 baseline.
+FO-017 therefore extends the previous FO-016 baseline of:
+
+```text
+199 tests
+```
+
+to:
+
+```text
+211 tests
+```
 
 Additional verification produced:
 
@@ -6077,6 +6042,680 @@ FO-017 does not implement:
 - automatic AuditEvent creation for ProductionRun cancellation actions
 - automatic WorkOrder status changes
 - WorkOrder cancellation propagation
+- machine integration
+- MES integration
+- REST API endpoints
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
+
+# 26. FO-018 Current State
+
+## FO-018: Implement ProductionEntry Website Workflow
+
+FO-018 introduces the first website workflow for recording manufacturing output against an existing ACTIVE ProductionRun.
+
+The existing ProductionEntry model remains unchanged.
+
+No database migration is required because FO-018 uses the existing ProductionEntry schema introduced in:
+
+```text
+0005_create_production_entries
+```
+
+The website workflow allows authorised Users to record:
+
+```text
+good_quantity
+rejected_quantity
+```
+
+against an ACTIVE ProductionRun.
+
+The ProductionRun relationship and authenticated User are assigned automatically by the server.
+
+## ProductionEntry Website Workflow
+
+The workflow is:
+
+```text
+ACTIVE ProductionRun
+        |
+        v
+Record Production Entry
+        |
+        v
+ProductionEntry form
+        |
+        v
+Quantity validation
+        |
+        v
+ProductionRun state validation
+        |
+        v
+ProductionEntry created
+        |
+        v
+recorded_by assigned automatically
+        |
+        v
+Redirect to ProductionRun detail page
+        |
+        v
+ProductionRun totals recalculated from related entries
+```
+
+The User does not manually select the ProductionRun.
+
+The ProductionRun is determined from the URL:
+
+```text
+/production-runs/<production_run_pk>/entries/new/
+```
+
+The authenticated User is assigned automatically to:
+
+```text
+recorded_by
+```
+
+This prevents a User from selecting another User as the ProductionEntry recorder through the website form.
+
+## ProductionEntry Form
+
+FO-018 introduces a dedicated ModelForm for ProductionEntry creation.
+
+The website form exposes only:
+
+```text
+good_quantity
+rejected_quantity
+```
+
+The following ProductionEntry fields are not directly editable through the form:
+
+```text
+production_run
+recorded_by
+recorded_at
+```
+
+The ProductionRun is assigned by the view.
+
+The authenticated User is assigned to `recorded_by`.
+
+`recorded_at` continues to be populated automatically by the existing model field.
+
+## Quantity Validation
+
+The existing ProductionEntry validation remains authoritative.
+
+A valid ProductionEntry must contain at least one recorded unit.
+
+Therefore:
+
+```text
+good_quantity = 0
+rejected_quantity = 0
+```
+
+is invalid.
+
+The ProductionEntry model continues to enforce:
+
+```text
+good_quantity >= 0
+rejected_quantity >= 0
+```
+
+and:
+
+```text
+good_quantity > 0
+```
+
+OR
+
+```text
+rejected_quantity > 0
+```
+
+The existing database constraint remains:
+
+```text
+production_entry_quantity_required
+```
+
+Negative quantities remain invalid.
+
+FO-018 does not modify these existing model or database rules.
+
+## ProductionRun State Protection
+
+ProductionEntry creation is permitted only when the related ProductionRun has status:
+
+```text
+ACTIVE
+```
+
+The following ProductionRun states cannot accept new ProductionEntries:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+Direct access to the ProductionEntry creation endpoint for an ineligible ProductionRun returns:
+
+```text
+403 Forbidden
+```
+
+This means hiding the Record Production Entry button is not the only protection.
+
+The server-side view independently verifies the current ProductionRun state before allowing the form to be used.
+
+## ProductionEntry Permissions
+
+FO-018 permits ProductionEntry recording for authenticated manufacturing Users allowed by the website workflow.
+
+Manual and automated verification confirm that an Operator can record ProductionEntries against an ACTIVE ProductionRun.
+
+ProductionEntry creation still requires authentication.
+
+Unauthenticated access redirects to the login workflow.
+
+The current FO-018 scope does not introduce a separate ProductionEntry permission model or Django permission object.
+
+## ProductionRun Detail Integration
+
+The ProductionRun detail page now displays a:
+
+```text
+Record Production Entry
+```
+
+action when the ProductionRun is ACTIVE.
+
+The action is not displayed when the ProductionRun is:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+The ProductionRun detail page also contains a Production Entries section.
+
+When no ProductionEntries exist, the page displays:
+
+```text
+No production entries recorded.
+```
+
+When entries exist, the page displays each related ProductionEntry including:
+
+```text
+Good Quantity
+Rejected Quantity
+Recorded By
+Recorded At
+```
+
+Existing ProductionEntries remain visible when the ProductionRun later moves out of ACTIVE status.
+
+FO-018 does not delete or hide historical ProductionEntries when a ProductionRun is paused, completed or cancelled.
+
+## ProductionEntry Ordering
+
+The existing ProductionEntry ordering remains:
+
+```text
+-recorded_at
+-id
+```
+
+This causes the newest ProductionEntry to be displayed first.
+
+FO-018 preserves this model behaviour.
+
+## ProductionRun Aggregation
+
+The existing ProductionRun calculated values automatically aggregate related ProductionEntries.
+
+FO-018 exposes this existing behaviour through the website.
+
+The ProductionRun detail page continues to display:
+
+```text
+Good Quantity
+Rejected Quantity
+Total Recorded
+Completion
+```
+
+These values are calculated from related ProductionEntry records.
+
+FO-018 does not store duplicated aggregate quantity fields on ProductionRun.
+
+The related ProductionEntry records remain the source of truth.
+
+## Manual FO-018 Verification
+
+Manual verification used synthetic manufacturing data only.
+
+The primary manual verification used:
+
+```text
+Production Run #6
+Work Order: WO-2026-0003
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Production Line: LINE-A01 - Line A
+Shift: Night Shift
+```
+
+Production Run #6 was initially created as:
+
+```text
+PLANNED
+```
+
+and then started through the existing ProductionRun start workflow.
+
+After starting, the ProductionRun became:
+
+```text
+ACTIVE
+```
+
+The ProductionRun detail page then displayed:
+
+```text
+Pause Production Run
+Complete Production Run
+Cancel Production Run
+Record Production Entry
+```
+
+The Production Entries section initially displayed:
+
+```text
+No production entries recorded.
+```
+
+## First ProductionEntry Verification
+
+The first synthetic ProductionEntry recorded:
+
+```text
+Good Quantity: 48
+Rejected Quantity: 2
+```
+
+The ProductionRun totals then displayed:
+
+```text
+Good Quantity: 48
+Rejected Quantity: 2
+Total Recorded: 50
+Completion: 10.0%
+```
+
+The Production Entries section displayed the new entry with:
+
+```text
+Good Quantity: 48
+Rejected Quantity: 2
+Recorded By: admin
+```
+
+This confirmed:
+
+- ProductionEntry creation succeeds against an ACTIVE ProductionRun
+- the ProductionEntry is associated with the requested ProductionRun
+- `recorded_by` is assigned automatically
+- ProductionRun aggregate values update correctly
+- the new ProductionEntry is displayed on the ProductionRun detail page
+
+## Multiple ProductionEntry Verification
+
+A second synthetic ProductionEntry recorded:
+
+```text
+Good Quantity: 88
+Rejected Quantity: 12
+```
+
+The two ProductionEntries therefore contained:
+
+```text
+Entry 1:
+Good Quantity: 48
+Rejected Quantity: 2
+Total: 50
+
+Entry 2:
+Good Quantity: 88
+Rejected Quantity: 12
+Total: 100
+```
+
+The ProductionRun aggregate values became:
+
+```text
+Good Quantity: 136
+Rejected Quantity: 14
+Total Recorded: 150
+Completion: 30.0%
+```
+
+The associated WorkOrder planned quantity was:
+
+```text
+500
+```
+
+Therefore:
+
+```text
+150 / 500 * 100 = 30.0%
+```
+
+This confirmed the existing ProductionRun aggregation behaviour remains correct when multiple ProductionEntries are recorded.
+
+The newest ProductionEntry appeared first in the Production Entries section.
+
+## Invalid Quantity Manual Verification
+
+FO-018 manually verified rejection of:
+
+```text
+Good Quantity: 0
+Rejected Quantity: 0
+```
+
+The invalid submission did not create a ProductionEntry.
+
+The existing model validation remained authoritative.
+
+The ProductionRun totals remained unchanged.
+
+## PAUSED ProductionRun Manual Verification
+
+Production Run #6 was then paused through the existing FO-014 workflow.
+
+Its status became:
+
+```text
+PAUSED
+```
+
+The Record Production Entry action disappeared from the ProductionRun detail page.
+
+Existing ProductionEntries remained visible.
+
+The aggregate values remained:
+
+```text
+Good Quantity: 136
+Rejected Quantity: 14
+Total Recorded: 150
+Completion: 30.0%
+```
+
+Direct access to:
+
+```text
+/production-runs/6/entries/new/
+```
+
+returned:
+
+```text
+403 Forbidden
+```
+
+This confirms that ProductionEntry creation is protected at the server level and cannot be bypassed by manually entering the endpoint URL.
+
+All manual FO-018 records were synthetic.
+
+## Automated FO-018 Validation
+
+FO-018 introduces a dedicated:
+
+```text
+ProductionEntryInterfaceTests
+```
+
+test class in:
+
+```text
+core/tests.py
+```
+
+The dedicated FO-018 test run produced:
+
+```text
+Found 25 test(s).
+Ran 25 tests
+OK
+```
+
+The automated FO-018 tests verify:
+
+- ProductionEntry creation requires authentication
+- Operator may access the ProductionEntry creation page for an ACTIVE ProductionRun
+- Production Supervisor may access the ProductionEntry creation page for an ACTIVE ProductionRun
+- Record Production Entry is displayed for an ACTIVE ProductionRun
+- Record Production Entry is hidden for a PLANNED ProductionRun
+- Record Production Entry is hidden for a PAUSED ProductionRun
+- Record Production Entry is hidden for a COMPLETED ProductionRun
+- Record Production Entry is hidden for a CANCELLED ProductionRun
+- an Operator may create a valid ProductionEntry
+- a created ProductionEntry belongs to the requested ProductionRun
+- `recorded_by` is assigned to the authenticated User
+- zero good and zero rejected quantity is rejected
+- negative good quantity is rejected
+- negative rejected quantity is rejected
+- PLANNED ProductionRuns cannot accept ProductionEntries
+- PAUSED ProductionRuns cannot accept ProductionEntries
+- COMPLETED ProductionRuns cannot accept ProductionEntries
+- CANCELLED ProductionRuns cannot accept ProductionEntries
+- multiple entries aggregate good quantity correctly
+- multiple entries aggregate rejected quantity correctly
+- multiple entries aggregate total recorded quantity correctly
+- multiple entries aggregate completion percentage correctly
+- ProductionRun detail displays ProductionEntries
+- ProductionRun detail displays the empty ProductionEntry state
+- ProductionEntries use newest-first ordering
+
+## Full Core Validation
+
+The complete Core regression suite after FO-018 produced:
+
+```text
+Ran 236 tests in 20.972s
+OK
+```
+
+FO-018 therefore adds:
+
+```text
+25 tests
+```
+
+to the previous FO-017 baseline of:
+
+```text
+211 tests
+```
+
+resulting in:
+
+```text
+236 Core tests
+```
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+Python syntax validation for the expanded test file also passed using:
+
+```text
+python -m py_compile core/tests.py
+```
+
+## Migration Verification
+
+FO-018 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-018 migration is required.
+
+The ProductionEntry schema introduced in migration:
+
+```text
+0005_create_production_entries
+```
+
+remains authoritative.
+
+## FO-018 Files Updated
+
+FO-018 updates:
+
+```text
+core/forms.py
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+core/templates/core/production_entry_form.html
+docs/database-design.md
+```
+
+## FO-018 Acceptance Criteria Verified
+
+- ProductionEntry website workflow is implemented.
+- ProductionEntry creation requires authentication.
+- ProductionEntry creation is associated with a specific ProductionRun.
+- ProductionRun is determined by the endpoint rather than editable form input.
+- `recorded_by` is assigned automatically from the authenticated User.
+- `recorded_at` continues to be populated automatically.
+- ProductionEntry form exposes good quantity.
+- ProductionEntry form exposes rejected quantity.
+- ProductionEntry form does not expose `production_run`.
+- ProductionEntry form does not expose `recorded_by`.
+- ProductionEntry form does not expose `recorded_at`.
+- ProductionEntry creation is allowed for ACTIVE ProductionRuns.
+- PLANNED ProductionRuns cannot accept ProductionEntries.
+- PAUSED ProductionRuns cannot accept ProductionEntries.
+- COMPLETED ProductionRuns cannot accept ProductionEntries.
+- CANCELLED ProductionRuns cannot accept ProductionEntries.
+- Direct access against an ineligible ProductionRun returns 403 Forbidden.
+- Record Production Entry action is displayed for ACTIVE ProductionRuns.
+- Record Production Entry action is hidden for PLANNED ProductionRuns.
+- Record Production Entry action is hidden for PAUSED ProductionRuns.
+- Record Production Entry action is hidden for COMPLETED ProductionRuns.
+- Record Production Entry action is hidden for CANCELLED ProductionRuns.
+- Existing ProductionEntries remain visible after the run leaves ACTIVE status.
+- zero good and zero rejected quantity is rejected.
+- negative good quantity is rejected.
+- negative rejected quantity is rejected.
+- ProductionEntry model validation remains authoritative.
+- ProductionEntry database constraints remain authoritative.
+- related ProductionEntries are displayed on the ProductionRun detail page.
+- an empty ProductionEntry state is displayed when no entries exist.
+- newest ProductionEntry is displayed first.
+- ProductionRun good quantity aggregation remains correct.
+- ProductionRun rejected quantity aggregation remains correct.
+- ProductionRun total recorded quantity aggregation remains correct.
+- ProductionRun completion percentage aggregation remains correct.
+- multiple ProductionEntries are supported.
+- existing ProductionRun Start workflow remains functional.
+- existing ProductionRun Pause workflow remains functional.
+- existing ProductionRun Resume workflow remains functional.
+- existing ProductionRun Completion workflow remains functional.
+- existing ProductionRun Cancellation workflow remains functional.
+- no automatic ProductionRun status transition occurs from ProductionEntry creation.
+- no automatic WorkOrder status transition occurs from ProductionEntry creation.
+- no automatic AuditEvent is created.
+- no DowntimeEvent behaviour is changed.
+- no QualityInspection behaviour is changed.
+- no database migration is introduced.
+- all manual test data is synthetic.
+- 25 dedicated FO-018 tests pass.
+- 236 Core tests pass.
+- Django system checks pass.
+- Python syntax validation passes.
+- migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-018 Out of Scope
+
+FO-018 does not implement:
+
+- ProductionEntry editing
+- ProductionEntry deletion
+- ProductionEntry correction workflow
+- ProductionEntry approval workflow
+- ProductionEntry rejection workflow
+- ProductionEntry electronic signatures
+- ProductionEntry batch entry
+- ProductionEntry bulk import
+- ProductionEntry CSV import
+- ProductionEntry spreadsheet import
+- ProductionEntry barcode entry
+- ProductionEntry machine-generated records
+- ProductionEntry MES integration
+- ProductionEntry API endpoints
+- ProductionEntry comments beyond the existing model design
+- automatic ProductionRun completion based on recorded quantity
+- automatic ProductionRun pause based on ProductionEntry creation
+- automatic ProductionRun resume based on ProductionEntry creation
+- automatic WorkOrder status changes
+- automatic WorkOrder completion
+- automatic AuditEvent creation
+- DowntimeEvent website workflow
+- QualityInspection website workflow
+- mandatory QualityInspection before recording production
+- operator assignment to ProductionRun
+- production lot or batch tracking
+- serial number tracking
+- scrap reason capture
+- rejected quantity reason capture
+- rework tracking
+- material consumption tracking
 - machine integration
 - MES integration
 - REST API endpoints

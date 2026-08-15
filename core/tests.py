@@ -12,13 +12,13 @@ from django.utils import timezone
 from .models import (
     Product,
     ProductionArea,
+    ProductionEntry,
     ProductionLine,
     ProductionRun,
     Shift,
     Site,
     WorkOrder,
 )
-
 
 ROLE_NAMES = {
     "Operator",
@@ -2461,4 +2461,690 @@ class ProductionRunInterfaceTests(TestCase):
         self.assertEqual(
             self.active_production_run.ended_at,
             ended_at,
+        )
+
+class ProductionEntryInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+        cls.supervisor_group = Group.objects.get(
+            name="Production Supervisor"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo018_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(cls.operator_group)
+
+        cls.supervisor = User.objects.create_user(
+            username="fo018_supervisor",
+            password=cls.password,
+        )
+        cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.site = Site.objects.create(
+            code="FO018-SITE",
+            name="Synthetic FO-018 Site",
+            description=(
+                "Synthetic site for FO-018 "
+                "ProductionEntry interface tests."
+            ),
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="FO018-AREA",
+            name="Synthetic FO-018 Area",
+            description=(
+                "Synthetic production area for FO-018 tests."
+            ),
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO018-LINE",
+            name="Synthetic FO-018 Line",
+            description=(
+                "Synthetic Production Line for FO-018 tests."
+            ),
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-018 Test Shift",
+            start_time=time(7, 0),
+            end_time=time(15, 0),
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO018",
+            name="Synthetic FO-018 Product",
+            description=(
+                "Synthetic Product for FO-018 interface tests."
+            ),
+        )
+
+        cls.work_order = WorkOrder.objects.create(
+            order_number="WO-FO018-0001",
+            product=cls.product,
+            planned_quantity=500,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 31),
+            notes="Synthetic Work Order for FO-018.",
+        )
+
+        cls.active_production_run = ProductionRun.objects.create(
+            work_order=cls.work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.ACTIVE,
+            started_at=timezone.now(),
+            notes=(
+                "Synthetic ACTIVE Production Run "
+                "for FO-018."
+            ),
+        )
+
+        cls.planned_work_order = WorkOrder.objects.create(
+            order_number="WO-FO018-0002",
+            product=cls.product,
+            planned_quantity=500,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 9, 1),
+            notes=(
+                "Synthetic Work Order for PLANNED "
+                "FO-018 Production Run."
+            ),
+        )
+
+        cls.planned_production_run = ProductionRun.objects.create(
+            work_order=cls.planned_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.PLANNED,
+            notes=(
+                "Synthetic PLANNED Production Run "
+                "for FO-018."
+            ),
+        )
+
+    def test_production_entry_create_requires_login(self):
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_operator_can_access_production_entry_create_page(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Record Production Entry",
+        )
+        self.assertContains(
+            response,
+            self.work_order.order_number,
+        )
+
+    def test_supervisor_can_access_production_entry_create_page(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_operator_sees_record_entry_button_for_active_run(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_record_entry_button_not_shown_for_planned_run(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_record_entry_button_not_shown_for_paused_run(self):
+        self.active_production_run.status = ProductionRun.Status.PAUSED
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_record_entry_button_not_shown_for_completed_run(self):
+        self.active_production_run.status = ProductionRun.Status.COMPLETED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_record_entry_button_not_shown_for_cancelled_run(self):
+        self.active_production_run.status = ProductionRun.Status.CANCELLED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_operator_can_create_valid_production_entry(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": 48,
+                "rejected_quantity": 2,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            ),
+        )
+
+        entry = ProductionEntry.objects.get(
+            production_run=self.active_production_run
+        )
+
+        self.assertEqual(
+            entry.good_quantity,
+            48,
+        )
+        self.assertEqual(
+            entry.rejected_quantity,
+            2,
+        )
+
+    def test_created_entry_belongs_to_requested_production_run(self):
+        self.client.force_login(self.operator)
+
+        self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": 25,
+                "rejected_quantity": 5,
+            },
+        )
+
+        entry = ProductionEntry.objects.get(
+            production_run=self.active_production_run
+        )
+
+        self.assertEqual(
+            entry.production_run,
+            self.active_production_run,
+        )
+
+    def test_recorded_by_is_authenticated_user(self):
+        self.client.force_login(self.operator)
+
+        self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": 20,
+                "rejected_quantity": 1,
+            },
+        )
+
+        entry = ProductionEntry.objects.get(
+            production_run=self.active_production_run
+        )
+
+        self.assertEqual(
+            entry.recorded_by,
+            self.operator,
+        )
+
+    def test_zero_good_and_zero_rejected_is_rejected(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": 0,
+                "rejected_quantity": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertFalse(
+            ProductionEntry.objects.filter(
+                production_run=self.active_production_run
+            ).exists()
+        )
+
+    def test_negative_good_quantity_is_rejected(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": -1,
+                "rejected_quantity": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertFalse(
+            ProductionEntry.objects.filter(
+                production_run=self.active_production_run
+            ).exists()
+        )
+
+    def test_negative_rejected_quantity_is_rejected(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            ),
+            {
+                "good_quantity": 1,
+                "rejected_quantity": -1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertFalse(
+            ProductionEntry.objects.filter(
+                production_run=self.active_production_run
+            ).exists()
+        )
+
+    def test_planned_run_cannot_accept_production_entry(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_paused_run_cannot_accept_production_entry(self):
+        self.active_production_run.status = ProductionRun.Status.PAUSED
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_completed_run_cannot_accept_production_entry(self):
+        self.active_production_run.status = ProductionRun.Status.COMPLETED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_cancelled_run_cannot_accept_production_entry(self):
+        self.active_production_run.status = ProductionRun.Status.CANCELLED
+        self.active_production_run.ended_at = timezone.now()
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_multiple_entries_update_good_quantity_total(self):
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=48,
+            rejected_quantity=2,
+            recorded_by=self.operator,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=88,
+            rejected_quantity=12,
+            recorded_by=self.supervisor,
+        )
+
+        self.assertEqual(
+            self.active_production_run.good_quantity,
+            136,
+        )
+
+    def test_multiple_entries_update_rejected_quantity_total(self):
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=48,
+            rejected_quantity=2,
+            recorded_by=self.operator,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=88,
+            rejected_quantity=12,
+            recorded_by=self.supervisor,
+        )
+
+        self.assertEqual(
+            self.active_production_run.rejected_quantity,
+            14,
+        )
+
+    def test_multiple_entries_update_total_recorded_quantity(self):
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=48,
+            rejected_quantity=2,
+            recorded_by=self.operator,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=88,
+            rejected_quantity=12,
+            recorded_by=self.supervisor,
+        )
+
+        self.assertEqual(
+            self.active_production_run.total_recorded_quantity,
+            150,
+        )
+
+    def test_multiple_entries_update_completion_percentage(self):
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=48,
+            rejected_quantity=2,
+            recorded_by=self.operator,
+        )
+
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=88,
+            rejected_quantity=12,
+            recorded_by=self.supervisor,
+        )
+
+        self.assertEqual(
+            self.active_production_run.completion_percentage,
+            30.0,
+        )
+
+    def test_production_run_detail_displays_production_entries(self):
+        ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=48,
+            rejected_quantity=2,
+            recorded_by=self.operator,
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Production Entries",
+        )
+        self.assertContains(
+            response,
+            self.operator.username,
+        )
+
+    def test_production_run_detail_displays_empty_entry_state(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "No production entries recorded.",
+        )
+
+    def test_production_entries_are_displayed_newest_first(self):
+        first_entry = ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=10,
+            rejected_quantity=1,
+            recorded_by=self.operator,
+        )
+
+        second_entry = ProductionEntry.objects.create(
+            production_run=self.active_production_run,
+            good_quantity=20,
+            rejected_quantity=2,
+            recorded_by=self.supervisor,
+        )
+
+        entries = list(
+            self.active_production_run.production_entries.all()
+        )
+
+        self.assertEqual(
+            entries[0],
+            second_entry,
+        )
+        self.assertEqual(
+            entries[1],
+            first_entry,
         )

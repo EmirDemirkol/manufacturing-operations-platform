@@ -166,7 +166,8 @@
             font-weight: 700;
         }
 
-        .notes-card {
+        .notes-card,
+        .entries-card {
             margin-bottom: 24px;
             padding: 22px;
             border: 1px solid #2a4150;
@@ -174,7 +175,8 @@
             background: #101e28;
         }
 
-        .notes-card h2 {
+        .notes-card h2,
+        .entries-card h2 {
             margin-top: 0;
         }
 
@@ -210,6 +212,53 @@
             font-weight: 800;
         }
 
+        .entries-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .entries-header h2 {
+            margin: 0;
+        }
+
+        .entry-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .entry-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            padding: 16px;
+            border: 1px solid #2a4150;
+            border-radius: 10px;
+            background: #0c1922;
+        }
+
+        .entry-label {
+            margin: 0 0 6px;
+            color: #92a7b4;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .entry-value {
+            margin: 0;
+            color: #eef5f8;
+            font-weight: 700;
+        }
+
+        .empty-state {
+            margin: 0;
+            color: #92a7b4;
+        }
+
         .navigation-links {
             display: flex;
             gap: 12px;
@@ -228,6 +277,10 @@
             .page-header {
                 flex-direction: column;
             }
+
+            .entry-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
 
         @media (max-width: 520px) {
@@ -245,6 +298,15 @@
 
             .metrics {
                 grid-template-columns: 1fr;
+            }
+
+            .entry-row {
+                grid-template-columns: 1fr;
+            }
+
+            .entries-header {
+                align-items: flex-start;
+                flex-direction: column;
             }
         }
     </style>
@@ -372,6 +434,15 @@
                             </button>
                         </form>
                     {% endif %}
+                {% endif %}
+
+                {% if can_create_production_entries and production_run.status == "ACTIVE" %}
+                    <a
+                        class="button button-primary"
+                        href="{% url 'production-entry-create' production_run.pk %}"
+                    >
+                        Record Production Entry
+                    </a>
                 {% endif %}
             </div>
         </div>
@@ -510,6 +581,73 @@
                     {{ production_run.completion_percentage }}%
                 </p>
             </article>
+        </section>
+
+        <section class="entries-card">
+            <div class="entries-header">
+                <h2>Production Entries</h2>
+
+                {% if can_create_production_entries and production_run.status == "ACTIVE" %}
+                    <a
+                        class="button button-primary"
+                        href="{% url 'production-entry-create' production_run.pk %}"
+                    >
+                        Record Production Entry
+                    </a>
+                {% endif %}
+            </div>
+
+            {% if production_entries %}
+                <div class="entry-list">
+                    {% for entry in production_entries %}
+                        <article class="entry-row">
+                            <div>
+                                <p class="entry-label">
+                                    Good Quantity
+                                </p>
+
+                                <p class="entry-value">
+                                    {{ entry.good_quantity }}
+                                </p>
+                            </div>
+
+                            <div>
+                                <p class="entry-label">
+                                    Rejected Quantity
+                                </p>
+
+                                <p class="entry-value">
+                                    {{ entry.rejected_quantity }}
+                                </p>
+                            </div>
+
+                            <div>
+                                <p class="entry-label">
+                                    Recorded By
+                                </p>
+
+                                <p class="entry-value">
+                                    {{ entry.recorded_by.username }}
+                                </p>
+                            </div>
+
+                            <div>
+                                <p class="entry-label">
+                                    Recorded At
+                                </p>
+
+                                <p class="entry-value">
+                                    {{ entry.recorded_at }}
+                                </p>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="empty-state">
+                    No production entries recorded.
+                </p>
+            {% endif %}
         </section>
 
         <section class="notes-card">
