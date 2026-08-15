@@ -1,6 +1,8 @@
 from django import forms
 
 from .models import (
+    DowntimeEvent,
+    DowntimeReason,
     Product,
     ProductionEntry,
     ProductionLine,
@@ -93,3 +95,38 @@ class ProductionEntryForm(forms.ModelForm):
                 },
             ),
         }
+
+
+class DowntimeEventForm(forms.ModelForm):
+    class Meta:
+        model = DowntimeEvent
+        fields = [
+            "downtime_reason",
+            "started_at",
+            "notes",
+        ]
+        widgets = {
+            "started_at": forms.DateTimeInput(
+                attrs={
+                    "type": "datetime-local",
+                },
+                format="%Y-%m-%dT%H:%M",
+            ),
+            "notes": forms.Textarea(
+                attrs={
+                    "rows": 4,
+                },
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["downtime_reason"].queryset = (
+            DowntimeReason.objects.filter(is_active=True)
+            .order_by("code")
+        )
+
+        self.fields["started_at"].input_formats = [
+            "%Y-%m-%dT%H:%M",
+        ]

@@ -6726,3 +6726,961 @@ FO-018 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 27. FO-019 Current State
+
+## FO-019: Implement DowntimeEvent Website Workflow
+
+FO-019 introduces the first website workflow for opening, displaying and closing DowntimeEvent records against an existing ACTIVE ProductionRun.
+
+The existing DowntimeEvent model remains unchanged.
+
+No database migration is required because FO-019 uses the existing DowntimeEvent schema introduced in:
+
+```text
+0006_downtimeevent
+```
+
+The website workflow allows authorised Users to:
+
+- open a DowntimeEvent against an ACTIVE ProductionRun
+- select an active DowntimeReason
+- record optional downtime notes
+- automatically record the authenticated User as `opened_by`
+- automatically record the downtime start timestamp
+- display existing DowntimeEvents on the ProductionRun detail page
+- close an open DowntimeEvent
+- automatically record the authenticated User as `closed_by`
+- automatically record the downtime end timestamp
+
+Existing DowntimeEvent model validation and database constraints remain authoritative.
+
+## DowntimeEvent Website Workflow
+
+The opening workflow is:
+
+```text
+ACTIVE ProductionRun
+        |
+        v
+Open Downtime Event
+        |
+        v
+DowntimeEvent form
+        |
+        v
+DowntimeReason selection
+        |
+        v
+ProductionRun state validation
+        |
+        v
+Open-event uniqueness validation
+        |
+        v
+DowntimeEvent created
+        |
+        v
+opened_by assigned automatically
+        |
+        v
+started_at assigned automatically
+        |
+        v
+Redirect to ProductionRun detail page
+```
+
+The closing workflow is:
+
+```text
+Open DowntimeEvent
+        |
+        v
+Close Downtime Event
+        |
+        v
+POST request
+        |
+        v
+Permission validation
+        |
+        v
+Open-event validation
+        |
+        v
+ended_at assigned automatically
+        |
+        v
+closed_by assigned automatically
+        |
+        v
+DowntimeEvent closed
+        |
+        v
+Redirect to ProductionRun detail page
+```
+
+## DowntimeEvent Creation URL
+
+DowntimeEvent creation is scoped to a specific ProductionRun.
+
+The creation endpoint is:
+
+```text
+/production-runs/<production_run_pk>/downtime/new/
+```
+
+The ProductionRun is determined from the URL.
+
+The User does not manually select a ProductionRun through the form.
+
+This prevents the DowntimeEvent from being reassigned to another ProductionRun through website form input.
+
+## DowntimeEvent Closure URL
+
+An existing open DowntimeEvent is closed through:
+
+```text
+/downtime-events/<pk>/close/
+```
+
+The DowntimeEvent is identified by its record ID.
+
+Closing downtime changes operational state and therefore requires:
+
+```text
+POST
+```
+
+Direct GET requests to the close endpoint are rejected.
+
+## DowntimeEvent Form
+
+FO-019 introduces a dedicated ModelForm for DowntimeEvent creation.
+
+The website form exposes:
+
+```text
+downtime_reason
+notes
+```
+
+The following fields are assigned by the application and are not directly editable through the creation form:
+
+```text
+production_run
+started_at
+ended_at
+opened_by
+closed_by
+```
+
+The ProductionRun is assigned from the URL.
+
+The authenticated User is assigned automatically to:
+
+```text
+opened_by
+```
+
+The downtime start timestamp is assigned automatically using the current application time.
+
+The new DowntimeEvent begins in the open state:
+
+```text
+ended_at = None
+closed_by = None
+```
+
+## DowntimeReason Selection
+
+The DowntimeEvent form uses existing DowntimeReason reference data.
+
+Only active DowntimeReason records are available for selection through the website form.
+
+Inactive DowntimeReason records are excluded from the selectable queryset.
+
+The existing DowntimeReason model and database rules remain unchanged.
+
+## DowntimeEvent Creation Permissions
+
+FO-019 permits DowntimeEvent creation for:
+
+```text
+Operator
+Production Supervisor
+System Administrator
+Django superuser
+```
+
+Manual and automated verification confirm that Operators and Production Supervisors can use the DowntimeEvent website workflow.
+
+Users outside the permitted manufacturing roles, including Quality Specialist users, cannot open DowntimeEvents through this workflow.
+
+Unauthorised direct access returns:
+
+```text
+403 Forbidden
+```
+
+The existing Django Group architecture remains the source of role permissions.
+
+FO-019 does not introduce a second role or permission system.
+
+## DowntimeEvent Closure Permissions
+
+Open DowntimeEvents may be closed by:
+
+```text
+Operator
+Production Supervisor
+System Administrator
+Django superuser
+```
+
+The authenticated User performing the closure is assigned automatically to:
+
+```text
+closed_by
+```
+
+Users without DowntimeEvent closure permission receive:
+
+```text
+403 Forbidden
+```
+
+## ProductionRun State Protection
+
+A new DowntimeEvent may only be opened when the related ProductionRun has status:
+
+```text
+ACTIVE
+```
+
+The following ProductionRun states cannot accept new DowntimeEvents:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+Direct access to the DowntimeEvent creation endpoint for an ineligible ProductionRun returns:
+
+```text
+403 Forbidden
+```
+
+This server-side protection remains effective even if a User manually enters the endpoint URL.
+
+The existing DowntimeEvent model rule requiring an ACTIVE ProductionRun remains authoritative.
+
+FO-019 does not replace that model validation.
+
+## One Open DowntimeEvent Per ProductionRun
+
+The existing DowntimeEvent database architecture allows a maximum of one open DowntimeEvent for each ProductionRun.
+
+An open DowntimeEvent has:
+
+```text
+ended_at = None
+```
+
+The database constraint remains:
+
+```text
+unique_open_downtime_per_production_run
+```
+
+FO-019 also protects this rule at the website workflow level.
+
+When an ACTIVE ProductionRun already has an open DowntimeEvent:
+
+```text
+Open Downtime Event
+```
+
+is not shown on the ProductionRun detail page.
+
+A second open DowntimeEvent cannot be created for the same ProductionRun.
+
+Once the existing event is closed, another DowntimeEvent may be opened later.
+
+Therefore one ProductionRun may accumulate multiple historical closed DowntimeEvents while still having a maximum of one open event at a time.
+
+## Automatic Opening Traceability
+
+When a valid DowntimeEvent is created through the website:
+
+```text
+production_run -> requested ProductionRun
+opened_by      -> authenticated User
+started_at     -> current application timestamp
+ended_at       -> None
+closed_by      -> None
+```
+
+The User does not manually provide the opening User or opening timestamp.
+
+This preserves consistent operational traceability.
+
+## Closing Downtime
+
+Closing an open DowntimeEvent changes:
+
+```text
+ended_at  -> current application timestamp
+closed_by -> authenticated User
+```
+
+The original values remain unchanged:
+
+```text
+production_run
+downtime_reason
+started_at
+opened_by
+notes
+```
+
+The existing DowntimeEvent consistency rule remains authoritative:
+
+```text
+Open:
+ended_at = null
+closed_by = null
+
+Closed:
+ended_at = populated
+closed_by = populated
+```
+
+## Timestamp Validation
+
+FO-019 preserves the existing timestamp ordering rule:
+
+```text
+ended_at >= started_at
+```
+
+The database constraint remains:
+
+```text
+downtime_event_end_not_before_start
+```
+
+The website workflow uses the current application timestamp when closing an event.
+
+FO-019 does not modify or remove the existing model and database validation.
+
+## ProductionRun Detail Integration
+
+FO-019 extends the existing ProductionRun detail page with a:
+
+```text
+Downtime Events
+```
+
+section.
+
+When no DowntimeEvents exist, the page displays:
+
+```text
+No downtime events recorded.
+```
+
+When downtime records exist, the section displays operational information including:
+
+```text
+Downtime Reason
+Downtime Reason description
+State
+Started At
+Ended At
+Opened By
+Closed By
+Notes
+```
+
+Open and closed state is derived from the existing DowntimeEvent timestamps.
+
+An open event displays:
+
+```text
+Open
+```
+
+A closed event displays:
+
+```text
+Closed
+```
+
+Existing DowntimeEvents remain visible after closure.
+
+FO-019 preserves historical downtime records.
+
+## Open Downtime Event Action
+
+For an authorised User, the ProductionRun detail page displays:
+
+```text
+Open Downtime Event
+```
+
+only when:
+
+```text
+ProductionRun.status = ACTIVE
+```
+
+and:
+
+```text
+no open DowntimeEvent currently exists for the ProductionRun
+```
+
+The action is not displayed when the ProductionRun is:
+
+```text
+PLANNED
+PAUSED
+COMPLETED
+CANCELLED
+```
+
+The action is also hidden while the ACTIVE ProductionRun already contains an open DowntimeEvent.
+
+After the open event is closed, the action becomes available again while the ProductionRun remains ACTIVE.
+
+## Close Downtime Event Action
+
+An open DowntimeEvent displayed on the ProductionRun detail page provides:
+
+```text
+Close Downtime Event
+```
+
+to an authorised User.
+
+The action uses POST.
+
+After successful closure:
+
+- the DowntimeEvent displays as Closed
+- `ended_at` displays the generated closure timestamp
+- `closed_by` displays the authenticated closing User
+- the Close Downtime Event action disappears
+- the historical DowntimeEvent remains visible
+- Open Downtime Event becomes available again if the ProductionRun remains ACTIVE
+
+A closed DowntimeEvent cannot be closed again.
+
+## Downtime Duration
+
+FO-019 does not introduce a new stored downtime-duration field.
+
+The existing DowntimeEvent duration design remains:
+
+```text
+duration =
+ended_at - started_at
+```
+
+for closed events.
+
+Open events have no completed duration.
+
+FO-019 preserves the existing derived-duration architecture.
+
+## ProductionRun Lifecycle Independence
+
+FO-019 does not automatically change ProductionRun lifecycle status.
+
+Opening a DowntimeEvent does not automatically change:
+
+```text
+ACTIVE -> PAUSED
+```
+
+Closing a DowntimeEvent does not automatically change:
+
+```text
+PAUSED -> ACTIVE
+```
+
+The existing explicit ProductionRun lifecycle workflows remain independent:
+
+```text
+FO-013 Start
+FO-014 Pause
+FO-015 Resume
+FO-016 Complete
+FO-017 Cancel
+```
+
+Any future automatic ProductionRun lifecycle behaviour based on DowntimeEvent state must be introduced through a separate roadmap issue.
+
+## ProductionEntry Behaviour
+
+FO-019 does not modify ProductionEntry behaviour.
+
+ProductionEntry recording continues to depend on the ProductionRun having status:
+
+```text
+ACTIVE
+```
+
+FO-019 does not automatically prevent ProductionEntry creation merely because an open DowntimeEvent exists.
+
+Any future rule connecting an open DowntimeEvent to ProductionEntry availability must be explicitly defined by a later issue.
+
+## ProductionRun Completion Behaviour
+
+FO-019 does not introduce a rule requiring open DowntimeEvents to be closed before ProductionRun completion.
+
+The existing FO-016 completion workflow remains unchanged.
+
+Any future completion blocking based on open downtime remains a separate business rule that must be implemented explicitly.
+
+## ProductionRun Cancellation Behaviour
+
+FO-019 does not automatically close open DowntimeEvents when a ProductionRun is cancelled.
+
+The existing FO-017 cancellation workflow remains unchanged.
+
+Any future cancellation propagation into DowntimeEvent state must be explicitly defined and tested through another roadmap issue.
+
+## WorkOrder Behaviour
+
+FO-019 does not automatically modify WorkOrder status.
+
+Opening or closing DowntimeEvent records does not automatically change the associated WorkOrder.
+
+## AuditEvent Behaviour
+
+FO-019 does not automatically create AuditEvent records when downtime is opened or closed.
+
+The existing FO-010 AuditEvent architecture remains unchanged.
+
+Automatic downtime audit logging remains reserved for a future issue that explicitly defines and tests that behaviour.
+
+## QualityInspection Behaviour
+
+FO-019 does not modify QualityInspection behaviour.
+
+QualityInspection remains independent from the DowntimeEvent website workflow.
+
+## Manual FO-019 Verification
+
+FO-019 was manually verified through the ForgeOps website using synthetic manufacturing data.
+
+The primary manual verification used:
+
+```text
+Production Run #6
+Work Order: WO-2026-0003
+Product: PRD-1001 - Synthetic Medical Device Assembly
+Production Line: LINE-A01 - Line A
+Shift: Night Shift
+```
+
+The ProductionRun had existing synthetic ProductionEntry history:
+
+```text
+Good Quantity: 136
+Rejected Quantity: 14
+Total Recorded: 150
+Completion: 30.0%
+```
+
+The ProductionRun was returned to:
+
+```text
+ACTIVE
+```
+
+through the existing lifecycle workflow.
+
+The detail page displayed:
+
+```text
+Open Downtime Event
+```
+
+## DowntimeEvent Opening Verification
+
+A new synthetic DowntimeEvent was opened using:
+
+```text
+Downtime Reason: EQUIPMENT - Equipment fault
+Notes: Synthetic FO-019 downtime workflow test.
+```
+
+After creation, the ProductionRun detail page displayed the new DowntimeEvent with:
+
+```text
+State: Open
+Downtime Reason: EQUIPMENT
+Description: Equipment fault
+Started At: populated
+Ended At: Not ended
+Opened By: admin
+Closed By: Not closed
+Notes: Synthetic FO-019 downtime workflow test.
+```
+
+The page also displayed:
+
+```text
+Close Downtime Event
+```
+
+The Open Downtime Event action was unavailable while the open event existed.
+
+This confirmed:
+
+- DowntimeEvent creation succeeds against an ACTIVE ProductionRun
+- the requested ProductionRun is assigned automatically
+- the selected DowntimeReason is stored
+- `opened_by` is assigned automatically
+- `started_at` is assigned automatically
+- new downtime begins open
+- `ended_at` remains empty
+- `closed_by` remains empty
+- existing ProductionEntry history remains unchanged
+- the event appears on the ProductionRun detail page
+
+## DowntimeEvent Closure Verification
+
+The synthetic DowntimeEvent was then closed through:
+
+```text
+Close Downtime Event
+```
+
+After closure, the ProductionRun detail page displayed:
+
+```text
+State: Closed
+Started At: 15 Aug 2026, 8:56 p.m.
+Ended At: 15 Aug 2026, 9:01 p.m.
+Opened By: admin
+Closed By: admin
+```
+
+The existing notes remained:
+
+```text
+Synthetic FO-019 downtime workflow test.
+```
+
+The Close Downtime Event action disappeared.
+
+The Open Downtime Event action became available again because:
+
+```text
+ProductionRun.status = ACTIVE
+```
+
+and the ProductionRun no longer contained an open DowntimeEvent.
+
+This confirmed:
+
+- an open DowntimeEvent may be closed successfully
+- `ended_at` is generated automatically
+- `closed_by` is assigned automatically
+- opening traceability is preserved
+- closing traceability is recorded
+- closed downtime remains visible as operational history
+- another downtime event may be opened later
+
+## Ineligible ProductionRun Verification
+
+Direct access to a downtime creation endpoint for a non-ACTIVE ProductionRun was manually tested.
+
+The request returned:
+
+```text
+403 Forbidden
+```
+
+Server output confirmed:
+
+```text
+Downtime Events may only be opened against ACTIVE Production Runs.
+```
+
+This verified that DowntimeEvent creation cannot be bypassed by manually entering the URL.
+
+All records used for FO-019 manual verification were synthetic.
+
+## Automated FO-019 Validation
+
+FO-019 introduces a dedicated:
+
+```text
+DowntimeEventInterfaceTests
+```
+
+test class in:
+
+```text
+core/tests.py
+```
+
+The dedicated FO-019 test run produced:
+
+```text
+Ran 26 tests in 0.794s
+OK
+```
+
+The automated FO-019 tests verify:
+
+- DowntimeEvent creation requires authentication
+- Operator can access the DowntimeEvent creation page for an ACTIVE ProductionRun
+- Production Supervisor can access the DowntimeEvent creation page
+- unauthorised Quality Specialist cannot access the DowntimeEvent creation page
+- Operator can create a valid DowntimeEvent
+- Production Supervisor can create a valid DowntimeEvent
+- a created DowntimeEvent belongs to the requested ProductionRun
+- `opened_by` is assigned automatically
+- `started_at` is assigned automatically
+- a new DowntimeEvent begins open
+- PLANNED ProductionRuns cannot accept DowntimeEvents
+- PAUSED ProductionRuns cannot accept DowntimeEvents
+- COMPLETED ProductionRuns cannot accept DowntimeEvents
+- CANCELLED ProductionRuns cannot accept DowntimeEvents
+- Open Downtime Event action is displayed for an eligible ACTIVE ProductionRun
+- Open Downtime Event action is hidden for PLANNED ProductionRuns
+- Open Downtime Event action is hidden for PAUSED ProductionRuns
+- Open Downtime Event action is hidden for COMPLETED ProductionRuns
+- Open Downtime Event action is hidden for CANCELLED ProductionRuns
+- Open Downtime Event action is hidden when the ACTIVE ProductionRun already has an open DowntimeEvent
+- a second simultaneous open DowntimeEvent is blocked
+- ProductionRun detail displays an empty downtime state
+- ProductionRun detail displays an open DowntimeEvent
+- Operator can close an open DowntimeEvent
+- Production Supervisor can close an open DowntimeEvent
+- unauthorised Quality Specialist cannot close a DowntimeEvent
+- closure assigns the closing User
+- closure records the end timestamp
+- closed downtime no longer exposes the close action
+- a closed DowntimeEvent remains visible as historical operational data
+
+Several related assertions are combined within individual tests.
+
+## Full Core Validation
+
+The complete Core regression suite after FO-019 produced:
+
+```text
+Ran 262 tests in 21.908s
+OK
+```
+
+FO-019 therefore adds:
+
+```text
+26 tests
+```
+
+to the previous FO-018 baseline of:
+
+```text
+236 tests
+```
+
+resulting in:
+
+```text
+262 Core tests
+```
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-019 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-019 migration is required.
+
+The DowntimeEvent schema introduced in:
+
+```text
+0006_downtimeevent
+```
+
+remains authoritative.
+
+The existing database constraints remain:
+
+```text
+downtime_event_end_not_before_start
+downtime_event_close_state_consistent
+unique_open_downtime_per_production_run
+```
+
+## FO-019 Files Updated
+
+FO-019 updates:
+
+```text
+core/forms.py
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+core/templates/core/downtime_event_form.html
+docs/database-design.md
+```
+
+## FO-019 Acceptance Criteria Verified
+
+- DowntimeEvent website workflow is implemented.
+- DowntimeEvent creation requires authentication.
+- DowntimeEvent creation is associated with a specific ProductionRun.
+- ProductionRun is determined by the endpoint rather than editable form input.
+- DowntimeEvent form exposes DowntimeReason.
+- DowntimeEvent form exposes optional notes.
+- ProductionRun is not directly editable through the form.
+- `opened_by` is assigned automatically from the authenticated User.
+- `started_at` is assigned automatically.
+- new DowntimeEvents begin open.
+- new DowntimeEvents contain no `ended_at`.
+- new DowntimeEvents contain no `closed_by`.
+- only active DowntimeReasons are selectable.
+- Operators can open DowntimeEvents.
+- Production Supervisors can open DowntimeEvents.
+- System Administrator permission is implemented in permission logic.
+- Django superuser permission is implemented.
+- unauthorised roles cannot open DowntimeEvents.
+- DowntimeEvent creation is allowed against ACTIVE ProductionRuns.
+- PLANNED ProductionRuns cannot accept DowntimeEvents.
+- PAUSED ProductionRuns cannot accept DowntimeEvents.
+- COMPLETED ProductionRuns cannot accept DowntimeEvents.
+- CANCELLED ProductionRuns cannot accept DowntimeEvents.
+- direct creation access for an ineligible ProductionRun returns 403 Forbidden.
+- only one open DowntimeEvent may exist for a ProductionRun.
+- a second simultaneous open DowntimeEvent is blocked.
+- Open Downtime Event is displayed only for eligible ACTIVE ProductionRuns.
+- Open Downtime Event is hidden when an open DowntimeEvent already exists.
+- Open Downtime Event is hidden for PLANNED ProductionRuns.
+- Open Downtime Event is hidden for PAUSED ProductionRuns.
+- Open Downtime Event is hidden for COMPLETED ProductionRuns.
+- Open Downtime Event is hidden for CANCELLED ProductionRuns.
+- ProductionRun detail includes a Downtime Events section.
+- an empty downtime state is displayed when no events exist.
+- open DowntimeEvents are displayed on the ProductionRun detail page.
+- closed DowntimeEvents remain displayed as historical records.
+- open and closed states are visually distinguishable.
+- open DowntimeEvents may be closed through the website.
+- downtime closure requires POST.
+- Operator can close an eligible open DowntimeEvent.
+- Production Supervisor can close an eligible open DowntimeEvent.
+- unauthorised roles cannot close DowntimeEvents.
+- `closed_by` is assigned automatically from the authenticated User.
+- `ended_at` is assigned automatically.
+- the original opening User remains unchanged.
+- the original opening timestamp remains unchanged.
+- DowntimeReason remains unchanged during closure.
+- notes remain unchanged during closure.
+- closed DowntimeEvents cannot be closed again.
+- existing timestamp ordering validation remains authoritative.
+- existing close-state consistency validation remains authoritative.
+- existing one-open-event-per-run database constraint remains authoritative.
+- downtime duration remains derived from timestamps.
+- no duplicate duration field is introduced.
+- existing ProductionRun Start workflow remains functional.
+- existing ProductionRun Pause workflow remains functional.
+- existing ProductionRun Resume workflow remains functional.
+- existing ProductionRun Completion workflow remains functional.
+- existing ProductionRun Cancellation workflow remains functional.
+- existing ProductionEntry website workflow remains functional.
+- opening downtime does not automatically pause the ProductionRun.
+- closing downtime does not automatically resume the ProductionRun.
+- an open DowntimeEvent does not automatically block ProductionRun completion.
+- ProductionRun cancellation does not automatically close downtime.
+- no automatic WorkOrder status change is introduced.
+- no automatic AuditEvent creation is introduced.
+- no QualityInspection behaviour is changed.
+- no database migration is introduced.
+- all manual test data is synthetic.
+- 26 dedicated FO-019 tests pass.
+- 262 Core tests pass.
+- Django system checks pass.
+- migration drift check passes.
+- Git whitespace validation passes.
+
+## FO-019 Out of Scope
+
+FO-019 does not implement:
+
+- DowntimeEvent editing after creation
+- DowntimeEvent deletion
+- DowntimeEvent correction workflow
+- DowntimeEvent approval workflow
+- DowntimeEvent electronic signatures
+- reopening a closed DowntimeEvent
+- modifying `started_at` through the website
+- modifying `ended_at` manually through the website
+- manually selecting `opened_by`
+- manually selecting `closed_by`
+- automatic ProductionRun pause when downtime opens
+- automatic ProductionRun resume when downtime closes
+- automatic ProductionRun status transitions from DowntimeEvent state
+- automatic ProductionEntry blocking while an open DowntimeEvent exists
+- blocking ProductionRun completion while downtime remains open
+- automatic DowntimeEvent closure during ProductionRun completion
+- automatic DowntimeEvent closure during ProductionRun cancellation
+- automatic WorkOrder status changes
+- automatic AuditEvent creation for downtime opening
+- automatic AuditEvent creation for downtime closure
+- downtime approval workflow
+- downtime reason management through the normal website
+- downtime reason creation through the normal website
+- downtime dashboards
+- downtime analytics
+- downtime Pareto analysis
+- OEE calculation
+- MTBF calculation
+- MTTR calculation
+- machine integration
+- PLC integration
+- MES integration
+- REST API endpoints
+- external downtime import
+- real manufacturing data
+- QualityInspection website workflow
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.

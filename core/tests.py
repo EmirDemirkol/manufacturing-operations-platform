@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from io import StringIO
 from unittest.mock import patch
 
@@ -10,6 +10,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
+    DowntimeEvent,
+    DowntimeReason,
     Product,
     ProductionArea,
     ProductionEntry,
@@ -3147,4 +3149,912 @@ class ProductionEntryInterfaceTests(TestCase):
         self.assertEqual(
             entries[1],
             first_entry,
+        )
+
+class DowntimeEventInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+        cls.supervisor_group = Group.objects.get(
+            name="Production Supervisor"
+        )
+        cls.quality_group = Group.objects.get(
+            name="Quality Specialist"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo019_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(cls.operator_group)
+
+        cls.supervisor = User.objects.create_user(
+            username="fo019_supervisor",
+            password=cls.password,
+        )
+        cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.quality_user = User.objects.create_user(
+            username="fo019_quality",
+            password=cls.password,
+        )
+        cls.quality_user.groups.add(cls.quality_group)
+
+        cls.site = Site.objects.create(
+            code="FO019-SITE",
+            name="Synthetic FO-019 Site",
+            description=(
+                "Synthetic site for FO-019 downtime workflow tests."
+            ),
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="FO019-AREA",
+            name="Synthetic FO-019 Area",
+            description=(
+                "Synthetic area for FO-019 downtime workflow tests."
+            ),
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO019-LINE",
+            name="Synthetic FO-019 Line",
+            description=(
+                "Synthetic production line for FO-019."
+            ),
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-019 Shift",
+            start_time=time(7, 0),
+            end_time=time(15, 0),
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO019",
+            name="Synthetic FO-019 Product",
+            description=(
+                "Synthetic product for FO-019 downtime tests."
+            ),
+        )
+
+        cls.active_work_order = WorkOrder.objects.create(
+            order_number="WO-FO019-ACTIVE",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Synthetic ACTIVE-run Work Order.",
+        )
+
+        cls.planned_work_order = WorkOrder.objects.create(
+            order_number="WO-FO019-PLANNED",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Synthetic PLANNED-run Work Order.",
+        )
+
+        cls.paused_work_order = WorkOrder.objects.create(
+            order_number="WO-FO019-PAUSED",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Synthetic PAUSED-run Work Order.",
+        )
+
+        cls.completed_work_order = WorkOrder.objects.create(
+            order_number="WO-FO019-COMPLETED",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Synthetic COMPLETED-run Work Order.",
+        )
+
+        cls.cancelled_work_order = WorkOrder.objects.create(
+            order_number="WO-FO019-CANCELLED",
+            product=cls.product,
+            planned_quantity=1000,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes="Synthetic CANCELLED-run Work Order.",
+        )
+
+        cls.run_started_at = (
+            timezone.now() - timedelta(hours=1)
+        )
+
+        cls.active_production_run = ProductionRun.objects.create(
+            work_order=cls.active_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.ACTIVE,
+            started_at=cls.run_started_at,
+            notes="Synthetic ACTIVE Production Run for FO-019.",
+        )
+
+        cls.planned_production_run = ProductionRun.objects.create(
+            work_order=cls.planned_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.PLANNED,
+            notes="Synthetic PLANNED Production Run for FO-019.",
+        )
+
+        cls.paused_production_run = ProductionRun.objects.create(
+            work_order=cls.paused_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.PAUSED,
+            started_at=cls.run_started_at,
+            notes="Synthetic PAUSED Production Run for FO-019.",
+        )
+
+        cls.completed_production_run = ProductionRun.objects.create(
+            work_order=cls.completed_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.COMPLETED,
+            started_at=cls.run_started_at,
+            ended_at=timezone.now(),
+            notes="Synthetic COMPLETED Production Run for FO-019.",
+        )
+
+        cls.cancelled_production_run = ProductionRun.objects.create(
+            work_order=cls.cancelled_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.CANCELLED,
+            started_at=cls.run_started_at,
+            ended_at=timezone.now(),
+            notes="Synthetic CANCELLED Production Run for FO-019.",
+        )
+
+        cls.downtime_reason = DowntimeReason.objects.create(
+            code="FO019-EQUIPMENT",
+            name="Synthetic Equipment Fault",
+            description=(
+                "Synthetic active downtime reason for FO-019."
+            ),
+        )
+
+        cls.inactive_downtime_reason = DowntimeReason.objects.create(
+            code="FO019-INACTIVE",
+            name="Inactive Synthetic Reason",
+            description=(
+                "Synthetic inactive downtime reason for FO-019."
+            ),
+            is_active=False,
+        )
+
+    def setUp(self):
+        DowntimeEvent.objects.all().delete()
+
+    def test_downtime_event_create_requires_login(self):
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_operator_can_access_downtime_event_create_page(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Open Downtime Event",
+        )
+        self.assertContains(
+            response,
+            self.active_work_order.order_number,
+        )
+
+    def test_supervisor_can_access_downtime_event_create_page(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Open Downtime Event",
+        )
+
+    def test_quality_user_cannot_access_downtime_event_create_page(self):
+        self.client.force_login(self.quality_user)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_inactive_downtime_reason_is_not_available_in_form(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        queryset = response.context[
+            "form"
+        ].fields["downtime_reason"].queryset
+
+        self.assertIn(
+            self.downtime_reason,
+            queryset,
+        )
+        self.assertNotIn(
+            self.inactive_downtime_reason,
+            queryset,
+        )
+
+    def test_operator_can_create_valid_downtime_event(self):
+        self.client.force_login(self.operator)
+
+        started_at = timezone.now() - timedelta(minutes=10)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "downtime_reason": self.downtime_reason.pk,
+                "started_at": started_at.strftime(
+                    "%Y-%m-%dT%H:%M"
+                ),
+                "notes": (
+                    "Synthetic FO-019 operator downtime event."
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            ),
+        )
+
+        downtime_event = DowntimeEvent.objects.get()
+
+        self.assertEqual(
+            downtime_event.production_run,
+            self.active_production_run,
+        )
+        self.assertEqual(
+            downtime_event.downtime_reason,
+            self.downtime_reason,
+        )
+        self.assertEqual(
+            downtime_event.opened_by,
+            self.operator,
+        )
+        self.assertIsNone(
+            downtime_event.ended_at
+        )
+        self.assertIsNone(
+            downtime_event.closed_by
+        )
+        self.assertEqual(
+            downtime_event.notes,
+            "Synthetic FO-019 operator downtime event.",
+        )
+
+    def test_supervisor_can_create_valid_downtime_event(self):
+        self.client.force_login(self.supervisor)
+
+        started_at = timezone.now() - timedelta(minutes=10)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "downtime_reason": self.downtime_reason.pk,
+                "started_at": started_at.strftime(
+                    "%Y-%m-%dT%H:%M"
+                ),
+                "notes": (
+                    "Synthetic FO-019 supervisor downtime event."
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        downtime_event = DowntimeEvent.objects.get()
+
+        self.assertEqual(
+            downtime_event.opened_by,
+            self.supervisor,
+        )
+
+    def test_created_downtime_event_belongs_to_requested_run(self):
+        self.client.force_login(self.operator)
+
+        started_at = timezone.now() - timedelta(minutes=5)
+
+        self.client.post(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "downtime_reason": self.downtime_reason.pk,
+                "started_at": started_at.strftime(
+                    "%Y-%m-%dT%H:%M"
+                ),
+                "notes": "Synthetic ownership test.",
+            },
+        )
+
+        downtime_event = DowntimeEvent.objects.get()
+
+        self.assertEqual(
+            downtime_event.production_run_id,
+            self.active_production_run.pk,
+        )
+
+    def test_planned_run_cannot_accept_downtime_event(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.planned_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_paused_run_cannot_accept_downtime_event(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.paused_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_completed_run_cannot_accept_downtime_event(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.completed_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_cancelled_run_cannot_accept_downtime_event(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.cancelled_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_second_open_downtime_event_is_blocked(self):
+        DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+            notes="Existing open downtime event.",
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            DowntimeEvent.objects.count(),
+            1,
+        )
+
+    def test_production_run_detail_displays_empty_downtime_state(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Downtime Events",
+        )
+        self.assertContains(
+            response,
+            "No downtime events recorded.",
+        )
+
+    def test_production_run_detail_displays_open_downtime_event(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+            notes="Synthetic displayed downtime event.",
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            self.downtime_reason.code,
+        )
+        self.assertContains(
+            response,
+            self.downtime_reason.name,
+        )
+        self.assertContains(
+            response,
+            self.operator.username,
+        )
+        self.assertContains(
+            response,
+            downtime_event.notes,
+        )
+        self.assertContains(
+            response,
+            "Open",
+        )
+        self.assertContains(
+            response,
+            "Close Downtime Event",
+        )
+
+    def test_open_button_is_shown_when_active_run_has_no_open_downtime(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Open Downtime Event",
+        )
+
+    def test_open_button_is_hidden_when_open_downtime_exists(self):
+        DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Open Downtime Event",
+        )
+
+    def test_open_button_is_not_shown_for_paused_run(self):
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.paused_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response,
+            "Open Downtime Event",
+        )
+
+    def test_downtime_event_close_requires_login(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_downtime_event_close_requires_post(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        downtime_event.refresh_from_db()
+
+        self.assertIsNone(
+            downtime_event.ended_at
+        )
+        self.assertIsNone(
+            downtime_event.closed_by
+        )
+
+    def test_operator_can_close_open_downtime_event(self):
+        started_at = timezone.now() - timedelta(minutes=20)
+
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            opened_by=self.supervisor,
+            notes="Synthetic close workflow test.",
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        downtime_event.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            ),
+        )
+        self.assertIsNotNone(
+            downtime_event.ended_at
+        )
+        self.assertEqual(
+            downtime_event.closed_by,
+            self.operator,
+        )
+        self.assertGreaterEqual(
+            downtime_event.ended_at,
+            started_at,
+        )
+
+    def test_supervisor_can_close_open_downtime_event(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        downtime_event.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            downtime_event.closed_by,
+            self.supervisor,
+        )
+        self.assertIsNotNone(
+            downtime_event.ended_at
+        )
+
+    def test_quality_user_cannot_close_downtime_event(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(self.quality_user)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        downtime_event.refresh_from_db()
+
+        self.assertIsNone(
+            downtime_event.ended_at
+        )
+        self.assertIsNone(
+            downtime_event.closed_by
+        )
+
+    def test_closed_downtime_event_cannot_be_closed_again(self):
+        started_at = timezone.now() - timedelta(minutes=30)
+        ended_at = timezone.now() - timedelta(minutes=10)
+
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=ended_at,
+            opened_by=self.operator,
+            closed_by=self.supervisor,
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        downtime_event.refresh_from_db()
+
+        self.assertEqual(
+            downtime_event.ended_at,
+            ended_at,
+        )
+        self.assertEqual(
+            downtime_event.closed_by,
+            self.supervisor,
+        )
+
+    def test_closed_downtime_event_remains_visible(self):
+        started_at = timezone.now() - timedelta(minutes=30)
+        ended_at = timezone.now() - timedelta(minutes=10)
+
+        DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=ended_at,
+            opened_by=self.operator,
+            closed_by=self.supervisor,
+            notes="Synthetic closed downtime event.",
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Closed",
+        )
+        self.assertContains(
+            response,
+            self.supervisor.username,
+        )
+        self.assertContains(
+            response,
+            "Synthetic closed downtime event.",
+        )
+
+    def test_new_downtime_can_be_opened_after_previous_event_is_closed(self):
+        started_at = timezone.now() - timedelta(minutes=30)
+        ended_at = timezone.now() - timedelta(minutes=10)
+
+        DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=started_at,
+            ended_at=ended_at,
+            opened_by=self.operator,
+            closed_by=self.supervisor,
+        )
+
+        self.client.force_login(self.operator)
+
+        response = self.client.get(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Open Downtime Event",
         )

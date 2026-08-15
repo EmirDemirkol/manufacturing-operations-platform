@@ -97,6 +97,16 @@ urlpatterns = [
         name="production-entry-create",
     ),
     path(
+        "production-runs/<int:production_run_pk>/downtime/new/",
+        views.downtime_event_create,
+        name="downtime-event-create",
+    ),
+    path(
+        "downtime-events/<int:pk>/close/",
+        views.downtime_event_close,
+        name="downtime-event-close",
+    ),
+    path(
         "work-orders/<int:work_order_pk>/production-runs/new/",
         views.production_run_create,
         name="production-run-create",

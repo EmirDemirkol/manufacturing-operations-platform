@@ -4,11 +4,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import (
+    DowntimeEventForm,
     ProductionEntryForm,
     ProductionRunForm,
     WorkOrderForm,
 )
 from .models import (
+    DowntimeEvent,
     Product,
     ProductionEntry,
     ProductionLine,
@@ -113,6 +115,19 @@ def user_can_cancel_production_runs(user):
 
 
 def user_can_create_production_entries(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Operator",
+            "Production Supervisor",
+            "System Administrator",
+        ]
+    ).exists()
+
+
+def user_can_manage_downtime_events(user):
     if user.is_superuser:
         return True
 
@@ -346,12 +361,26 @@ def production_run_detail(request, pk):
         ).all()
     )
 
+    downtime_events = (
+        production_run.downtime_events.select_related(
+            "downtime_reason",
+            "opened_by",
+            "closed_by",
+        ).all()
+    )
+
+    open_downtime_exists = downtime_events.filter(
+        ended_at__isnull=True
+    ).exists()
+
     return render(
         request,
         "core/production_run_detail.html",
         {
             "production_run": production_run,
             "production_entries": production_entries,
+            "downtime_events": downtime_events,
+            "open_downtime_exists": open_downtime_exists,
             "can_start_production_runs": user_can_start_production_runs(
                 request.user
             ),
@@ -373,6 +402,11 @@ def production_run_detail(request, pk):
             ),
             "can_create_production_entries": (
                 user_can_create_production_entries(
+                    request.user
+                )
+            ),
+            "can_manage_downtime_events": (
+                user_can_manage_downtime_events(
                     request.user
                 )
             ),
@@ -464,6 +498,112 @@ def production_entry_create(request, production_run_pk):
             "form": form,
             "production_run": production_run,
         },
+    )
+
+
+@login_required
+def downtime_event_create(request, production_run_pk):
+    if not user_can_manage_downtime_events(request.user):
+        raise PermissionDenied(
+            "You do not have permission to open Downtime Events."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun.objects.select_related(
+            "work_order__product",
+            "production_line__production_area__site",
+            "shift",
+        ),
+        pk=production_run_pk,
+    )
+
+    if production_run.status != ProductionRun.Status.ACTIVE:
+        raise PermissionDenied(
+            "Downtime Events may only be opened against "
+            "ACTIVE Production Runs."
+        )
+
+    open_downtime_exists = production_run.downtime_events.filter(
+        ended_at__isnull=True
+    ).exists()
+
+    if open_downtime_exists:
+        raise PermissionDenied(
+            "This Production Run already has an open Downtime Event."
+        )
+
+    if request.method == "POST":
+        form = DowntimeEventForm(request.POST)
+
+        if form.is_valid():
+            downtime_event = form.save(commit=False)
+            downtime_event.production_run = production_run
+            downtime_event.opened_by = request.user
+            downtime_event.ended_at = None
+            downtime_event.closed_by = None
+
+            downtime_event.full_clean()
+            downtime_event.save()
+
+            return redirect(
+                "production-run-detail",
+                pk=production_run.pk,
+            )
+    else:
+        form = DowntimeEventForm()
+
+    return render(
+        request,
+        "core/downtime_event_form.html",
+        {
+            "form": form,
+            "production_run": production_run,
+        },
+    )
+
+
+@login_required
+def downtime_event_close(request, pk):
+    if not user_can_manage_downtime_events(request.user):
+        raise PermissionDenied(
+            "You do not have permission to close Downtime Events."
+        )
+
+    downtime_event = get_object_or_404(
+        DowntimeEvent.objects.select_related(
+            "production_run",
+            "downtime_reason",
+            "opened_by",
+            "closed_by",
+        ),
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Downtime Events may only be closed using POST."
+        )
+
+    if downtime_event.ended_at is not None:
+        raise PermissionDenied(
+            "Only open Downtime Events may be closed."
+        )
+
+    downtime_event.ended_at = timezone.now()
+    downtime_event.closed_by = request.user
+
+    downtime_event.full_clean()
+    downtime_event.save(
+        update_fields=[
+            "ended_at",
+            "closed_by",
+            "updated_at",
+        ]
+    )
+
+    return redirect(
+        "production-run-detail",
+        pk=downtime_event.production_run.pk,
     )
 
 
