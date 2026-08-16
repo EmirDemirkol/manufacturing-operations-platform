@@ -5127,3 +5127,691 @@ class QualityInspectionInterfaceTests(TestCase):
             inspections[1],
             first_inspection,
         )
+
+
+class DashboardSummaryInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo021_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(
+            cls.operator_group
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO021",
+            name="Synthetic FO-021 Product",
+            description=(
+                "Synthetic product for FO-021 "
+                "dashboard summary tests."
+            ),
+        )
+
+        cls.site = Site.objects.create(
+            code="SITE-FO021",
+            name="Synthetic FO-021 Site",
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="AREA-FO021",
+            name="Synthetic FO-021 Area",
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="LINE-FO021",
+            name="Synthetic FO-021 Line",
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-021 Shift",
+            start_time=time(8, 0),
+            end_time=time(16, 0),
+        )
+
+        cls.downtime_reason = DowntimeReason.objects.create(
+            code="FO021-DOWN",
+            name="Synthetic FO-021 Downtime",
+            description=(
+                "Synthetic downtime reason for "
+                "dashboard summary tests."
+            ),
+        )
+
+        cls.active_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-ACTIVE",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.IN_PROGRESS,
+        )
+
+        cls.paused_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-PAUSED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.IN_PROGRESS,
+        )
+
+        cls.completed_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-COMPLETED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.COMPLETED,
+        )
+
+        cls.cancelled_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-CANCELLED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.CANCELLED,
+        )
+
+        cls.active_run = ProductionRun.objects.create(
+            work_order=cls.active_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.ACTIVE,
+            started_at=timezone.now(),
+        )
+
+        cls.paused_run = ProductionRun.objects.create(
+            work_order=cls.paused_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.PAUSED,
+            started_at=timezone.now(),
+        )
+
+        cls.completed_run = ProductionRun.objects.create(
+            work_order=cls.completed_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.COMPLETED,
+            started_at=(
+                timezone.now()
+                - timedelta(hours=2)
+            ),
+            ended_at=(
+                timezone.now()
+                - timedelta(hours=1)
+            ),
+        )
+
+        cls.cancelled_run = ProductionRun.objects.create(
+            work_order=cls.cancelled_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.CANCELLED,
+        )
+
+    def test_dashboard_summary_requires_login(self):
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+    def test_authenticated_user_can_access_dashboard_summary(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTemplateUsed(
+            response,
+            "core/dashboard_summary.html",
+        )
+
+    def test_dashboard_summary_displays_production_run_counts(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "active_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "paused_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "completed_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "cancelled_production_run_count"
+            ],
+            1,
+        )
+
+    def test_dashboard_summary_displays_open_downtime_count(self):
+        DowntimeEvent.objects.create(
+            production_run=self.active_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "open_downtime_event_count"
+            ],
+            1,
+        )
+
+    def test_dashboard_summary_displays_pending_inspection_count(self):
+        QualityInspection.objects.create(
+            production_run=self.active_run,
+            result=QualityInspection.Result.PENDING,
+            notes="Synthetic pending FO-021 inspection.",
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "pending_quality_inspection_count"
+            ],
+            1,
+        )
+
+    def test_recent_production_entries_are_limited_to_five(self):
+        for quantity in range(1, 7):
+            ProductionEntry.objects.create(
+                production_run=self.active_run,
+                good_quantity=quantity,
+                rejected_quantity=0,
+                recorded_by=self.operator,
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_production_entries"
+                ]
+            ),
+            5,
+        )
+
+    def test_recent_downtime_events_are_limited_to_five(self):
+        for offset in range(6):
+            DowntimeEvent.objects.create(
+                production_run=self.active_run,
+                downtime_reason=self.downtime_reason,
+                started_at=(
+                    timezone.now()
+                    - timedelta(minutes=offset + 1)
+                ),
+                ended_at=(
+                    timezone.now()
+                    - timedelta(minutes=offset)
+                ),
+                opened_by=self.operator,
+                closed_by=self.operator,
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_downtime_events"
+                ]
+            ),
+            5,
+        )
+
+    def test_recent_quality_inspections_are_limited_to_five(self):
+        for offset in range(6):
+            QualityInspection.objects.create(
+                production_run=self.active_run,
+                result=QualityInspection.Result.PENDING,
+                notes=(
+                    f"Synthetic FO-021 inspection {offset}."
+                ),
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_quality_inspections"
+                ]
+            ),
+            5,
+        )
+
+    def test_dashboard_summary_displays_empty_states(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertContains(
+            response,
+            "No production entries recorded.",
+        )
+        self.assertContains(
+            response,
+            "No downtime events recorded.",
+        )
+        self.assertContains(
+            response,
+            "No quality inspections recorded.",
+        )
+
+
+class DashboardSummaryInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo021_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(
+            cls.operator_group
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO021",
+            name="Synthetic FO-021 Product",
+            description=(
+                "Synthetic product for FO-021 "
+                "dashboard summary tests."
+            ),
+        )
+
+        cls.site = Site.objects.create(
+            code="SITE-FO021",
+            name="Synthetic FO-021 Site",
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="AREA-FO021",
+            name="Synthetic FO-021 Area",
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="LINE-FO021",
+            name="Synthetic FO-021 Line",
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-021 Shift",
+            start_time=time(8, 0),
+            end_time=time(16, 0),
+        )
+
+        cls.downtime_reason = DowntimeReason.objects.create(
+            code="FO021-DOWN",
+            name="Synthetic FO-021 Downtime",
+            description=(
+                "Synthetic downtime reason for "
+                "dashboard summary tests."
+            ),
+        )
+
+        cls.active_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-ACTIVE",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.IN_PROGRESS,
+        )
+
+        cls.paused_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-PAUSED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.IN_PROGRESS,
+        )
+
+        cls.completed_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-COMPLETED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.COMPLETED,
+        )
+
+        cls.cancelled_work_order = WorkOrder.objects.create(
+            order_number="WO-FO021-CANCELLED",
+            product=cls.product,
+            planned_quantity=100,
+            status=WorkOrder.Status.CANCELLED,
+        )
+
+        cls.active_run = ProductionRun.objects.create(
+            work_order=cls.active_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.ACTIVE,
+            started_at=timezone.now(),
+        )
+
+        cls.paused_run = ProductionRun.objects.create(
+            work_order=cls.paused_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.PAUSED,
+            started_at=timezone.now(),
+        )
+
+        cls.completed_run = ProductionRun.objects.create(
+            work_order=cls.completed_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.COMPLETED,
+            started_at=(
+                timezone.now()
+                - timedelta(hours=2)
+            ),
+            ended_at=(
+                timezone.now()
+                - timedelta(hours=1)
+            ),
+        )
+
+        cls.cancelled_run = ProductionRun.objects.create(
+            work_order=cls.cancelled_work_order,
+            production_line=cls.production_line,
+            shift=cls.shift,
+            status=ProductionRun.Status.CANCELLED,
+        )
+
+    def test_dashboard_summary_requires_login(self):
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+    def test_authenticated_user_can_access_dashboard_summary(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        self.assertTemplateUsed(
+            response,
+            "core/dashboard_summary.html",
+        )
+
+    def test_dashboard_summary_displays_production_run_counts(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "active_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "paused_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "completed_production_run_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            response.context[
+                "cancelled_production_run_count"
+            ],
+            1,
+        )
+
+    def test_dashboard_summary_displays_open_downtime_count(self):
+        DowntimeEvent.objects.create(
+            production_run=self.active_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now(),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "open_downtime_event_count"
+            ],
+            1,
+        )
+
+    def test_dashboard_summary_displays_pending_inspection_count(self):
+        QualityInspection.objects.create(
+            production_run=self.active_run,
+            result=QualityInspection.Result.PENDING,
+            notes="Synthetic pending FO-021 inspection.",
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            response.context[
+                "pending_quality_inspection_count"
+            ],
+            1,
+        )
+
+    def test_recent_production_entries_are_limited_to_five(self):
+        for quantity in range(1, 7):
+            ProductionEntry.objects.create(
+                production_run=self.active_run,
+                good_quantity=quantity,
+                rejected_quantity=0,
+                recorded_by=self.operator,
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_production_entries"
+                ]
+            ),
+            5,
+        )
+
+    def test_recent_downtime_events_are_limited_to_five(self):
+        for offset in range(6):
+            DowntimeEvent.objects.create(
+                production_run=self.active_run,
+                downtime_reason=self.downtime_reason,
+                started_at=(
+                    timezone.now()
+                    - timedelta(minutes=offset + 1)
+                ),
+                ended_at=(
+                    timezone.now()
+                    - timedelta(minutes=offset)
+                ),
+                opened_by=self.operator,
+                closed_by=self.operator,
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_downtime_events"
+                ]
+            ),
+            5,
+        )
+
+    def test_recent_quality_inspections_are_limited_to_five(self):
+        for offset in range(6):
+            QualityInspection.objects.create(
+                production_run=self.active_run,
+                result=QualityInspection.Result.PENDING,
+                notes=(
+                    f"Synthetic FO-021 inspection {offset}."
+                ),
+            )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertEqual(
+            len(
+                response.context[
+                    "recent_quality_inspections"
+                ]
+            ),
+            5,
+        )
+
+    def test_dashboard_summary_displays_empty_states(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("dashboard-summary")
+        )
+
+        self.assertContains(
+            response,
+            "No production entries recorded.",
+        )
+        self.assertContains(
+            response,
+            "No downtime events recorded.",
+        )
+        self.assertContains(
+            response,
+            "No quality inspections recorded.",
+        )

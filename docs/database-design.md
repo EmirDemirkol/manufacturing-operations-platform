@@ -8007,3 +8007,38 @@ FO-020 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+## FO-021 Production Dashboard Summary
+
+FO-021 introduces a read-only Production Dashboard Summary website view.
+
+The dashboard aggregates existing ForgeOps operational data without introducing new database models, fields, constraints, or migrations.
+
+The dashboard provides high-level counts for:
+
+- ACTIVE Production Runs
+- PAUSED Production Runs
+- COMPLETED Production Runs
+- CANCELLED Production Runs
+- open Downtime Events
+- pending Quality Inspections
+
+The dashboard also provides recent operational activity for:
+
+- ProductionEntry records
+- DowntimeEvent records
+- QualityInspection records
+
+Recent activity is limited to the five newest records in each category.
+
+The dashboard uses existing model relationships and querysets only.
+
+No database schema changes are required for FO-021.
+
+### FO-021 Verification
+
+Dedicated dashboard tests:
+
+```text
+Ran 9 tests
+OK
