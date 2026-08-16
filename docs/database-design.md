@@ -7684,3 +7684,326 @@ FO-019 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+## FO-020 QualityInspection Website Workflow
+
+FO-020 introduces the website workflow for creating and completing QualityInspection records against existing ProductionRuns.
+
+The workflow uses the existing `QualityInspection` model introduced in migration:
+
+```text
+0007_qualityinspection
+```
+
+No database schema changes are required.
+
+### QualityInspection Creation
+
+A QualityInspection may be created through the ProductionRun detail interface.
+
+Creation is permission controlled.
+
+Permitted users are:
+
+- Quality Specialist
+- System Administrator
+- Django superuser
+
+Operators and Production Supervisors cannot create QualityInspection records through the website workflow.
+
+A new QualityInspection is created with:
+
+```text
+result = PENDING
+completed_by = null
+completed_at = null
+```
+
+The ProductionRun is determined from the URL and is not directly selectable by the user.
+
+The creation form exposes:
+
+```text
+notes
+```
+
+The result is not user selectable during creation.
+
+Completion metadata is not user selectable during creation.
+
+### QualityInspection Completion
+
+A pending QualityInspection may be completed through the website workflow.
+
+Completion is permission controlled.
+
+Permitted users are:
+
+- Quality Specialist
+- System Administrator
+- Django superuser
+
+A completed inspection must have one of the following final results:
+
+```text
+PASSED
+FAILED
+```
+
+The completion workflow automatically records:
+
+```text
+completed_by = authenticated user
+completed_at = current timestamp
+```
+
+The completion form exposes:
+
+```text
+result
+notes
+```
+
+The result choices are limited to:
+
+```text
+PASSED
+FAILED
+```
+
+A completed QualityInspection cannot be completed again.
+
+### QualityInspection State Rules
+
+The existing QualityInspection model validation remains authoritative.
+
+A pending inspection requires:
+
+```text
+result = PENDING
+completed_by = null
+completed_at = null
+```
+
+A completed inspection requires:
+
+```text
+result = PASSED or FAILED
+completed_by != null
+completed_at != null
+```
+
+The existing database constraint remains authoritative:
+
+```text
+quality_inspection_completion_state_consistent
+```
+
+### ProductionRun Detail Integration
+
+The ProductionRun detail page displays related QualityInspection records.
+
+Each displayed QualityInspection includes:
+
+```text
+inspection identifier
+result
+completed_by
+completed_at
+created_at
+notes
+```
+
+Pending inspections display:
+
+```text
+Pending
+Not completed
+```
+
+Completed inspections remain visible after completion.
+
+Passed inspections display their final PASSED state.
+
+Failed inspections display their final FAILED state.
+
+QualityInspection records are displayed newest first according to the existing model ordering:
+
+```text
+-created_at
+-id
+```
+
+The Create Quality Inspection action is shown only to users with QualityInspection management permission.
+
+The Complete Quality Inspection action is shown only for pending inspections and only to users with completion permission.
+
+### Manual Verification
+
+FO-020 was manually verified using synthetic manufacturing data.
+
+The following paths were verified:
+
+- QualityInspection creation from an ACTIVE ProductionRun
+- newly created inspection displays as PENDING
+- pending inspection has no completed user
+- pending inspection has no completion timestamp
+- PASSED completion
+- FAILED completion
+- authenticated user is recorded in `completed_by`
+- completion timestamp is recorded in `completed_at`
+- completed inspections remain visible
+- completed inspections no longer expose the completion action
+- multiple QualityInspection records display correctly
+- newest QualityInspection records display first
+
+All manual verification data remained synthetic.
+
+### Automated Verification
+
+FO-020 includes dedicated interface tests in:
+
+```text
+QualityInspectionInterfaceTests
+```
+
+Dedicated FO-020 test result:
+
+```text
+Ran 25 tests
+OK
+```
+
+Full Core test result:
+
+```text
+Ran 287 tests
+OK
+```
+
+Additional verification:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+### Migration Verification
+
+FO-020 does not modify the database schema.
+
+The migration sequence therefore remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-020 migration is required.
+
+### FO-020 Files Updated
+
+```text
+core/forms.py
+core/views.py
+core/urls.py
+core/tests.py
+core/templates/core/production_run_detail.html
+core/templates/core/quality_inspection_form.html
+core/templates/core/quality_inspection_complete_form.html
+docs/database-design.md
+```
+
+### FO-020 Acceptance Criteria Verified
+
+- QualityInspection creation website workflow is implemented.
+- QualityInspection completion website workflow is implemented.
+- Quality Specialist creation permission is implemented.
+- Quality Specialist completion permission is implemented.
+- System Administrator creation permission is implemented.
+- System Administrator completion permission is implemented.
+- Django superuser permission is implemented.
+- Operators cannot create QualityInspection records through the website workflow.
+- Operators cannot complete QualityInspection records through the website workflow.
+- Production Supervisors cannot create QualityInspection records through the website workflow.
+- newly created QualityInspection records use PENDING status.
+- newly created QualityInspection records have no completed user.
+- newly created QualityInspection records have no completion timestamp.
+- ProductionRun association is derived from the URL.
+- creation form exposes notes only.
+- completion form exposes PASSED and FAILED outcomes.
+- completion automatically records the authenticated user.
+- completion automatically records the completion timestamp.
+- PASSED completion is supported.
+- FAILED completion is supported.
+- completed inspections cannot be completed again.
+- pending inspections expose the completion action to authorised users.
+- completed inspections do not expose the completion action.
+- ProductionRun detail displays related QualityInspection records.
+- ProductionRun detail displays an empty state when no inspections exist.
+- completed inspections remain visible.
+- QualityInspection ordering remains newest first.
+- existing QualityInspection validation remains authoritative.
+- existing database constraints remain authoritative.
+- no database migration is introduced.
+- no automatic ProductionRun status change is introduced.
+- no automatic WorkOrder status change is introduced.
+- no automatic AuditEvent creation is introduced.
+- manual verification uses synthetic manufacturing data.
+- 25 QualityInspection interface tests pass.
+- 287 Core tests pass.
+- Django system checks pass.
+- migration drift check passes.
+- Git whitespace validation passes.
+
+### FO-020 Out of Scope
+
+FO-020 does not implement:
+
+- mandatory inspection before ProductionRun completion
+- automatic ProductionRun blocking after failed inspection
+- automatic ProductionRun pause after failed inspection
+- automatic ProductionRun cancellation after failed inspection
+- automatic WorkOrder status changes
+- automatic WorkOrder quality hold
+- inspection approval hierarchy
+- multi-stage inspection workflow
+- inspection templates
+- inspection checklists
+- inspection measurements
+- specification limits
+- defect categorisation
+- rejected quantity linkage
+- non-conformance workflow
+- CAPA workflow
+- deviation workflow
+- electronic signatures
+- inspection attachments
+- image uploads
+- document uploads
+- quality certificates
+- batch or lot inspection linkage
+- serial number inspection linkage
+- automatic AuditEvent creation
+- REST API endpoints
+- MES integration
+- machine integration
+- dashboard analytics
+- production scheduling optimisation
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.

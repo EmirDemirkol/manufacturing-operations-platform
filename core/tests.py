@@ -17,6 +17,7 @@ from .models import (
     ProductionEntry,
     ProductionLine,
     ProductionRun,
+    QualityInspection,
     Shift,
     Site,
     WorkOrder,
@@ -4057,4 +4058,1072 @@ class DowntimeEventInterfaceTests(TestCase):
         self.assertContains(
             response,
             "Open Downtime Event",
+        )
+
+class QualityInspectionInterfaceTests(TestCase):
+    password = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.operator_group = Group.objects.get(
+            name="Operator"
+        )
+        cls.quality_group = Group.objects.get(
+            name="Quality Specialist"
+        )
+        cls.supervisor_group = Group.objects.get(
+            name="Production Supervisor"
+        )
+        cls.sysadmin_group = Group.objects.get(
+            name="System Administrator"
+        )
+
+        cls.operator = User.objects.create_user(
+            username="fo020_operator",
+            password=cls.password,
+        )
+        cls.operator.groups.add(
+            cls.operator_group
+        )
+
+        cls.quality_user = User.objects.create_user(
+            username="fo020_quality",
+            password=cls.password,
+        )
+        cls.quality_user.groups.add(
+            cls.quality_group
+        )
+
+        cls.supervisor = User.objects.create_user(
+            username="fo020_supervisor",
+            password=cls.password,
+        )
+        cls.supervisor.groups.add(
+            cls.supervisor_group
+        )
+
+        cls.sysadmin = User.objects.create_user(
+            username="fo020_sysadmin",
+            password=cls.password,
+        )
+        cls.sysadmin.groups.add(
+            cls.sysadmin_group
+        )
+
+        cls.site = Site.objects.create(
+            code="FO020-SITE",
+            name="Synthetic FO-020 Site",
+            description=(
+                "Synthetic site for FO-020 "
+                "QualityInspection interface tests."
+            ),
+        )
+
+        cls.production_area = ProductionArea.objects.create(
+            site=cls.site,
+            code="FO020-AREA",
+            name="Synthetic FO-020 Area",
+            description=(
+                "Synthetic area for FO-020 "
+                "QualityInspection interface tests."
+            ),
+        )
+
+        cls.production_line = ProductionLine.objects.create(
+            production_area=cls.production_area,
+            code="FO020-LINE-A",
+            name="Synthetic FO-020 Line A",
+            description=(
+                "Synthetic line for FO-020 "
+                "QualityInspection interface tests."
+            ),
+        )
+
+        cls.shift = Shift.objects.create(
+            name="FO-020 Day Shift",
+            start_time=time(7, 0),
+            end_time=time(15, 0),
+        )
+
+        cls.product = Product.objects.create(
+            code="PRD-FO020-A",
+            name="Synthetic FO-020 Product",
+            description=(
+                "Synthetic product for FO-020 "
+                "QualityInspection interface tests."
+            ),
+        )
+
+        cls.work_order = WorkOrder.objects.create(
+            order_number="WO-FO020-0001",
+            product=cls.product,
+            planned_quantity=500,
+            status=WorkOrder.Status.RELEASED,
+            due_date=date(2026, 8, 30),
+            notes=(
+                "Synthetic Work Order for "
+                "FO-020 QualityInspection tests."
+            ),
+        )
+
+        cls.active_production_run = (
+            ProductionRun.objects.create(
+                work_order=cls.work_order,
+                production_line=cls.production_line,
+                shift=cls.shift,
+                status=ProductionRun.Status.ACTIVE,
+                started_at=timezone.now(),
+                notes=(
+                    "Synthetic ACTIVE Production Run "
+                    "for FO-020 tests."
+                ),
+            )
+        )
+
+    def test_quality_inspection_create_requires_login(self):
+        response = self.client.get(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_quality_user_can_access_quality_inspection_create_page(self):
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            "Create Quality Inspection",
+        )
+
+    def test_sysadmin_can_access_quality_inspection_create_page(self):
+        self.client.force_login(
+            self.sysadmin
+        )
+
+        response = self.client.get(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+    def test_operator_cannot_access_quality_inspection_create_page(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_supervisor_cannot_access_quality_inspection_create_page(self):
+        self.client.force_login(
+            self.supervisor
+        )
+
+        response = self.client.get(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_quality_user_can_create_pending_quality_inspection(self):
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "notes": (
+                    "Synthetic FO-020 pending "
+                    "QualityInspection."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+        )
+
+        inspection = QualityInspection.objects.get(
+            production_run=(
+                self.active_production_run
+            )
+        )
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PENDING,
+        )
+        self.assertIsNone(
+            inspection.completed_by
+        )
+        self.assertIsNone(
+            inspection.completed_at
+        )
+        self.assertEqual(
+            inspection.notes,
+            (
+                "Synthetic FO-020 pending "
+                "QualityInspection."
+            ),
+        )
+
+    def test_created_quality_inspection_belongs_to_requested_production_run(self):
+        self.client.force_login(
+            self.quality_user
+        )
+
+        self.client.post(
+            reverse(
+                "quality-inspection-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "notes": (
+                    "Synthetic FO-020 ownership test."
+                ),
+            },
+        )
+
+        inspection = QualityInspection.objects.get(
+            notes=(
+                "Synthetic FO-020 ownership test."
+            )
+        )
+
+        self.assertEqual(
+            inspection.production_run,
+            self.active_production_run,
+        )
+
+    def test_production_run_detail_displays_empty_quality_inspection_state(self):
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            "Quality Inspections",
+        )
+        self.assertContains(
+            response,
+            "No quality inspections recorded.",
+        )
+
+    def test_production_run_detail_displays_pending_quality_inspection(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 visible "
+                "pending inspection."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            f"Quality Inspection #{inspection.pk}",
+        )
+        self.assertContains(
+            response,
+            "Pending",
+        )
+        self.assertContains(
+            response,
+            (
+                "Synthetic FO-020 visible "
+                "pending inspection."
+            ),
+        )
+        self.assertContains(
+            response,
+            "Not completed",
+        )
+
+    def test_quality_user_sees_create_quality_inspection_button(self):
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertContains(
+            response,
+            "Create Quality Inspection",
+        )
+
+    def test_operator_does_not_see_create_quality_inspection_button(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertNotContains(
+            response,
+            "Create Quality Inspection",
+        )
+
+    def test_pending_quality_inspection_shows_complete_button_for_quality_user(self):
+        QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 completion "
+                "button test."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertContains(
+            response,
+            "Complete Quality Inspection",
+        )
+
+    def test_operator_does_not_see_complete_quality_inspection_button(self):
+        QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 operator "
+                "button test."
+            ),
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertNotContains(
+            response,
+            "Complete Quality Inspection",
+        )
+
+    def test_quality_inspection_complete_requires_login(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+        self.assertIn(
+            "/accounts/login/",
+            response.url,
+        )
+
+    def test_quality_inspection_complete_requires_post(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_quality_user_can_access_quality_inspection_completion_form(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 completion "
+                "form test."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            "Complete Quality Inspection",
+        )
+        self.assertContains(
+            response,
+            f"Inspection #{inspection.pk}",
+        )
+
+    def test_operator_cannot_complete_quality_inspection(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+        )
+
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            ),
+            {
+                "result": (
+                    QualityInspection.Result.PASSED
+                ),
+                "notes": (
+                    "Operator should not "
+                    "complete this inspection."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        inspection.refresh_from_db()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PENDING,
+        )
+        self.assertIsNone(
+            inspection.completed_by
+        )
+        self.assertIsNone(
+            inspection.completed_at
+        )
+
+    def test_quality_user_can_complete_quality_inspection_as_passed(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 pending "
+                "inspection for PASS."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            ),
+            {
+                "result": (
+                    QualityInspection.Result.PASSED
+                ),
+                "notes": (
+                    "Synthetic FO-020 passed "
+                    "QualityInspection."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+        self.assertEqual(
+            response.url,
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+        )
+
+        inspection.refresh_from_db()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PASSED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.quality_user,
+        )
+        self.assertIsNotNone(
+            inspection.completed_at
+        )
+        self.assertEqual(
+            inspection.notes,
+            (
+                "Synthetic FO-020 passed "
+                "QualityInspection."
+            ),
+        )
+
+    def test_quality_user_can_complete_quality_inspection_as_failed(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+            notes=(
+                "Synthetic FO-020 pending "
+                "inspection for FAIL."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            ),
+            {
+                "result": (
+                    QualityInspection.Result.FAILED
+                ),
+                "notes": (
+                    "Synthetic FO-020 failed "
+                    "QualityInspection."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        inspection.refresh_from_db()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.FAILED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.quality_user,
+        )
+        self.assertIsNotNone(
+            inspection.completed_at
+        )
+        self.assertEqual(
+            inspection.notes,
+            (
+                "Synthetic FO-020 failed "
+                "QualityInspection."
+            ),
+        )
+
+    def test_sysadmin_can_complete_quality_inspection(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PENDING,
+        )
+
+        self.client.force_login(
+            self.sysadmin
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            ),
+            {
+                "result": (
+                    QualityInspection.Result.PASSED
+                ),
+                "notes": (
+                    "Synthetic FO-020 sysadmin "
+                    "completion test."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+
+        inspection.refresh_from_db()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PASSED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.sysadmin,
+        )
+        self.assertIsNotNone(
+            inspection.completed_at
+        )
+
+    def test_completed_quality_inspection_cannot_be_completed_again(self):
+        completed_at = timezone.now()
+
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.quality_user,
+            completed_at=completed_at,
+            notes=(
+                "Synthetic completed "
+                "FO-020 inspection."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "quality-inspection-complete",
+                kwargs={
+                    "pk": inspection.pk,
+                },
+            ),
+            {
+                "result": (
+                    QualityInspection.Result.FAILED
+                ),
+                "notes": (
+                    "This change must not be accepted."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+        inspection.refresh_from_db()
+
+        self.assertEqual(
+            inspection.result,
+            QualityInspection.Result.PASSED,
+        )
+        self.assertEqual(
+            inspection.completed_by,
+            self.quality_user,
+        )
+        self.assertEqual(
+            inspection.completed_at,
+            completed_at,
+        )
+        self.assertEqual(
+            inspection.notes,
+            (
+                "Synthetic completed "
+                "FO-020 inspection."
+            ),
+        )
+
+    def test_completed_quality_inspection_does_not_show_complete_button(self):
+        QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.quality_user,
+            completed_at=timezone.now(),
+            notes=(
+                "Synthetic completed FO-020 "
+                "button visibility test."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertNotContains(
+            response,
+            "Complete Quality Inspection",
+        )
+
+    def test_passed_quality_inspection_remains_visible(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.PASSED,
+            completed_by=self.quality_user,
+            completed_at=timezone.now(),
+            notes=(
+                "Synthetic visible passed "
+                "FO-020 inspection."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            f"Quality Inspection #{inspection.pk}",
+        )
+        self.assertContains(
+            response,
+            "Passed",
+        )
+        self.assertContains(
+            response,
+            self.quality_user.username,
+        )
+        self.assertContains(
+            response,
+            (
+                "Synthetic visible passed "
+                "FO-020 inspection."
+            ),
+        )
+
+    def test_failed_quality_inspection_remains_visible(self):
+        inspection = QualityInspection.objects.create(
+            production_run=(
+                self.active_production_run
+            ),
+            result=QualityInspection.Result.FAILED,
+            completed_by=self.quality_user,
+            completed_at=timezone.now(),
+            notes=(
+                "Synthetic visible failed "
+                "FO-020 inspection."
+            ),
+        )
+
+        self.client.force_login(
+            self.quality_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "production-run-detail",
+                kwargs={
+                    "pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            f"Quality Inspection #{inspection.pk}",
+        )
+        self.assertContains(
+            response,
+            "Failed",
+        )
+        self.assertContains(
+            response,
+            (
+                "Synthetic visible failed "
+                "FO-020 inspection."
+            ),
+        )
+
+    def test_quality_inspections_are_ordered_newest_first(self):
+        first_inspection = (
+            QualityInspection.objects.create(
+                production_run=(
+                    self.active_production_run
+                ),
+                result=(
+                    QualityInspection.Result.PENDING
+                ),
+                notes="Synthetic first FO-020 inspection.",
+            )
+        )
+
+        second_inspection = (
+            QualityInspection.objects.create(
+                production_run=(
+                    self.active_production_run
+                ),
+                result=(
+                    QualityInspection.Result.PENDING
+                ),
+                notes="Synthetic second FO-020 inspection.",
+            )
+        )
+
+        inspections = list(
+            self.active_production_run
+            .quality_inspections.all()
+        )
+
+        self.assertEqual(
+            inspections[0],
+            second_inspection,
+        )
+        self.assertEqual(
+            inspections[1],
+            first_inspection,
         )

@@ -7,6 +7,7 @@ from .models import (
     ProductionEntry,
     ProductionLine,
     ProductionRun,
+    QualityInspection,
     Shift,
     WorkOrder,
 )
@@ -129,4 +130,49 @@ class DowntimeEventForm(forms.ModelForm):
 
         self.fields["started_at"].input_formats = [
             "%Y-%m-%dT%H:%M",
+        ]
+
+
+class QualityInspectionCreateForm(forms.ModelForm):
+    class Meta:
+        model = QualityInspection
+        fields = [
+            "notes",
+        ]
+        widgets = {
+            "notes": forms.Textarea(
+                attrs={
+                    "rows": 4,
+                },
+            ),
+        }
+
+
+class QualityInspectionCompleteForm(forms.ModelForm):
+    class Meta:
+        model = QualityInspection
+        fields = [
+            "result",
+            "notes",
+        ]
+        widgets = {
+            "notes": forms.Textarea(
+                attrs={
+                    "rows": 4,
+                },
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["result"].choices = [
+            (
+                QualityInspection.Result.PASSED,
+                QualityInspection.Result.PASSED.label,
+            ),
+            (
+                QualityInspection.Result.FAILED,
+                QualityInspection.Result.FAILED.label,
+            ),
         ]
