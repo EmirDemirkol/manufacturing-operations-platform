@@ -676,33 +676,51 @@ Provide realistic fictional information for demonstrations.
 
 ---
 
-## FO-023: Complete Critical Automated Tests
+## FO-023: Complete Critical Automated Test Hardening
 
 **Priority:** P0  
-**Depends on:** All MVP features
+**Depends on:** All implemented MVP workflows
 
 ### Goal
 
-Ensure the core workflow is reliable.
+Audit and harden the existing ForgeOps automated test suite before MVP delivery.
+
+ForgeOps already contains substantial model and interface coverage, so FO-023 does not replace or rewrite the existing suite.
+
+FO-023 verifies the current coverage, removes confirmed test-suite defects and adds focused regression tests where meaningful gaps exist.
 
 ### Required Coverage
 
+The hardened suite must continue to cover the implemented MVP behaviour for:
+
 - Authentication
-- Permissions
+- Role-based permissions
 - Work-order validation
-- Production-run assignment
+- Production-run creation and lifecycle transitions
 - Production quantities
-- Downtime calculations
-- Inspection results
+- Downtime workflows and calculations
+- Quality-inspection results
 - Completion restrictions
-- Dashboard formulas
-- Audit-event creation
+- Dashboard-summary behaviour
+- AuditEvent model and website behaviour
+
+Automatic AuditEvent generation is not currently implemented globally and is therefore not introduced by FO-023.
+
+Future automatic audit behaviour must be introduced through a roadmap issue that explicitly defines and tests it.
 
 ### Completion Criteria
 
-- Critical tests pass.
-- Tests use synthetic data.
+- The full Core automated test suite passes.
+- Confirmed test-suite defects are corrected.
+- High-value missing regression coverage is added where justified.
+- Existing passing behaviour is not unnecessarily rewritten.
+- Tests and fixtures use synthetic data.
+- Django system checks pass.
+- No unintended migration drift is introduced.
+- Git diff validation passes.
 - Failed tests are fixed before release.
+
+---
 
 ---
 
