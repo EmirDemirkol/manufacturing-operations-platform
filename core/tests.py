@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
+    AuditEvent,
     DowntimeEvent,
     DowntimeReason,
     Product,
@@ -5814,4 +5815,568 @@ class DashboardSummaryInterfaceTests(TestCase):
         self.assertContains(
             response,
             "No quality inspections recorded.",
+        )
+
+class AuditEventInterfaceTests(TestCase):
+    TEST_PASSWORD = "ForgeOps-Test-Password-2026!"
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+
+        role_names = [
+            "Operator",
+            "Production Supervisor",
+            "Quality Specialist",
+            "Manufacturing Engineer",
+            "Operations Manager",
+            "System Administrator",
+        ]
+
+        cls.groups = {
+            role_name: Group.objects.get_or_create(
+                name=role_name
+            )[0]
+            for role_name in role_names
+        }
+
+        cls.operator = user_model.objects.create_user(
+            username="fo022_operator",
+            password=cls.TEST_PASSWORD,
+        )
+        cls.operator.groups.add(
+            cls.groups["Operator"]
+        )
+
+        cls.supervisor = user_model.objects.create_user(
+            username="fo022_supervisor",
+            password=cls.TEST_PASSWORD,
+        )
+        cls.supervisor.groups.add(
+            cls.groups["Production Supervisor"]
+        )
+
+        cls.quality_specialist = (
+            user_model.objects.create_user(
+                username="fo022_quality",
+                password=cls.TEST_PASSWORD,
+            )
+        )
+        cls.quality_specialist.groups.add(
+            cls.groups["Quality Specialist"]
+        )
+
+        cls.manufacturing_engineer = (
+            user_model.objects.create_user(
+                username="fo022_engineer",
+                password=cls.TEST_PASSWORD,
+            )
+        )
+        cls.manufacturing_engineer.groups.add(
+            cls.groups["Manufacturing Engineer"]
+        )
+
+        cls.operations_manager = (
+            user_model.objects.create_user(
+                username="fo022_manager",
+                password=cls.TEST_PASSWORD,
+            )
+        )
+        cls.operations_manager.groups.add(
+            cls.groups["Operations Manager"]
+        )
+
+        cls.system_administrator = (
+            user_model.objects.create_user(
+                username="fo022_sysadmin",
+                password=cls.TEST_PASSWORD,
+            )
+        )
+        cls.system_administrator.groups.add(
+            cls.groups["System Administrator"]
+        )
+
+        cls.superuser = user_model.objects.create_superuser(
+            username="fo022_superuser",
+            email="fo022-superuser@example.com",
+            password=cls.TEST_PASSWORD,
+        )
+
+        cls.started_event = AuditEvent.objects.create(
+            user=cls.superuser,
+            action_type=AuditEvent.ActionType.STARTED,
+            record_type="ProductionRun",
+            record_identifier="FO-022-RUN-001",
+            description=(
+                "Synthetic FO-022 started ProductionRun "
+                "audit test."
+            ),
+        )
+
+        cls.completed_event = AuditEvent.objects.create(
+            user=cls.superuser,
+            action_type=AuditEvent.ActionType.COMPLETED,
+            record_type="ProductionRun",
+            record_identifier="FO-022-RUN-002",
+            description=(
+                "Synthetic FO-022 completed ProductionRun "
+                "audit test."
+            ),
+        )
+
+        cls.created_event = AuditEvent.objects.create(
+            user=cls.superuser,
+            action_type=AuditEvent.ActionType.CREATED,
+            record_type="WorkOrder",
+            record_identifier="FO-022-WO-001",
+            description=(
+                "Synthetic FO-022 WorkOrder audit test."
+            ),
+        )
+
+    def test_audit_event_list_requires_login(self):
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            302,
+        )
+        self.assertIn(
+            "/login/",
+            response.url,
+        )
+
+    def test_operations_manager_can_access_audit_event_list(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            "Audit Events",
+        )
+
+    def test_system_administrator_can_access_audit_event_list(self):
+        self.client.force_login(
+            self.system_administrator
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertContains(
+            response,
+            "Audit Events",
+        )
+
+    def test_superuser_can_access_audit_event_list(self):
+        self.client.force_login(
+            self.superuser
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+    def test_operator_cannot_access_audit_event_list(self):
+        self.client.force_login(
+            self.operator
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_supervisor_cannot_access_audit_event_list(self):
+        self.client.force_login(
+            self.supervisor
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_quality_specialist_cannot_access_audit_event_list(self):
+        self.client.force_login(
+            self.quality_specialist
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_manufacturing_engineer_cannot_access_audit_event_list(self):
+        self.client.force_login(
+            self.manufacturing_engineer
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
+
+    def test_audit_event_list_displays_existing_events(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            "FO-022-RUN-001",
+        )
+        self.assertContains(
+            response,
+            "FO-022-RUN-002",
+        )
+        self.assertContains(
+            response,
+            "FO-022-WO-001",
+        )
+
+    def test_audit_events_are_displayed_newest_first(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        audit_events = list(
+            response.context["audit_events"]
+        )
+
+        self.assertEqual(
+            audit_events,
+            [
+                self.created_event,
+                self.completed_event,
+                self.started_event,
+            ],
+        )
+
+    def test_action_type_filter_returns_matching_events(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list"),
+            {
+                "action_type": (
+                    AuditEvent.ActionType.COMPLETED
+                ),
+            },
+        )
+
+        audit_events = list(
+            response.context["audit_events"]
+        )
+
+        self.assertEqual(
+            audit_events,
+            [self.completed_event],
+        )
+        self.assertContains(
+            response,
+            "FO-022-RUN-002",
+        )
+        self.assertNotContains(
+            response,
+            "FO-022-RUN-001",
+        )
+        self.assertNotContains(
+            response,
+            "FO-022-WO-001",
+        )
+
+    def test_record_type_filter_returns_matching_events(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list"),
+            {
+                "record_type": "WorkOrder",
+            },
+        )
+
+        audit_events = list(
+            response.context["audit_events"]
+        )
+
+        self.assertEqual(
+            audit_events,
+            [self.created_event],
+        )
+        self.assertContains(
+            response,
+            "FO-022-WO-001",
+        )
+        self.assertNotContains(
+            response,
+            "FO-022-RUN-001",
+        )
+        self.assertNotContains(
+            response,
+            "FO-022-RUN-002",
+        )
+
+    def test_action_and_record_type_filters_can_be_combined(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list"),
+            {
+                "action_type": (
+                    AuditEvent.ActionType.STARTED
+                ),
+                "record_type": "ProductionRun",
+            },
+        )
+
+        audit_events = list(
+            response.context["audit_events"]
+        )
+
+        self.assertEqual(
+            audit_events,
+            [self.started_event],
+        )
+
+    def test_combined_filters_can_return_empty_state(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list"),
+            {
+                "action_type": (
+                    AuditEvent.ActionType.CREATED
+                ),
+                "record_type": "ProductionRun",
+            },
+        )
+
+        self.assertEqual(
+            list(
+                response.context["audit_events"]
+            ),
+            [],
+        )
+        self.assertContains(
+            response,
+            "No audit events recorded.",
+        )
+
+    def test_unfiltered_list_restores_all_audit_events(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertEqual(
+            len(
+                response.context["audit_events"]
+            ),
+            3,
+        )
+
+    def test_audit_event_user_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            self.superuser.username,
+        )
+
+    def test_audit_event_action_type_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            "Started",
+        )
+        self.assertContains(
+            response,
+            "Completed",
+        )
+        self.assertContains(
+            response,
+            "Created",
+        )
+
+    def test_audit_event_record_type_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            "ProductionRun",
+        )
+        self.assertContains(
+            response,
+            "WorkOrder",
+        )
+
+    def test_audit_event_record_identifier_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            "FO-022-RUN-001",
+        )
+        self.assertContains(
+            response,
+            "FO-022-RUN-002",
+        )
+        self.assertContains(
+            response,
+            "FO-022-WO-001",
+        )
+
+    def test_audit_event_description_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            (
+                "Synthetic FO-022 started ProductionRun "
+                "audit test."
+            ),
+        )
+
+    def test_audit_event_created_timestamp_is_displayed(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertContains(
+            response,
+            self.started_event.created_at.year,
+        )
+
+    def test_audit_event_list_exposes_no_create_control(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertNotContains(
+            response,
+            "Create Audit Event",
+        )
+
+    def test_audit_event_list_exposes_no_edit_control(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertNotContains(
+            response,
+            "Edit Audit Event",
+        )
+
+    def test_audit_event_list_exposes_no_delete_control(self):
+        self.client.force_login(
+            self.operations_manager
+        )
+
+        response = self.client.get(
+            reverse("audit-event-list")
+        )
+
+        self.assertNotContains(
+            response,
+            "Delete Audit Event",
         )

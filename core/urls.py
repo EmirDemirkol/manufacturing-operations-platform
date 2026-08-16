@@ -11,6 +11,11 @@ urlpatterns = [
         name="dashboard-summary",
     ),
     path(
+        "audit-events/",
+        views.audit_event_list,
+        name="audit-event-list",
+    ),
+    path(
         "operator/",
         views.role_dashboard,
         {"role_name": "Operator"},

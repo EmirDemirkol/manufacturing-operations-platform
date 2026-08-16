@@ -8042,3 +8042,417 @@ Dedicated dashboard tests:
 ```text
 Ran 9 tests
 OK
+```
+
+# 28. FO-022 Current State
+
+## FO-022: Implement AuditEvent Website Workflow
+
+FO-022 introduces the first dedicated ForgeOps website interface for reviewing existing AuditEvent records.
+
+The existing AuditEvent model remains unchanged.
+
+No database migration is required because FO-022 uses the existing AuditEvent schema introduced through:
+
+```text
+0008_auditevent
+```
+
+FO-022 provides read-only access to existing audit history.
+
+It does not introduce automatic AuditEvent generation.
+
+## Audit Event Interface
+
+The AuditEvent interface is available at:
+
+```text
+/audit-events/
+```
+
+The named Django route is:
+
+```text
+audit-event-list
+```
+
+The page displays existing AuditEvent records using the current model ordering:
+
+```text
+-created_at
+-id
+```
+
+AuditEvents are therefore displayed newest first.
+
+## Displayed Audit Information
+
+The AuditEvent list displays:
+
+- creation timestamp
+- responsible User
+- action type
+- record type
+- record identifier
+- description
+
+The affected operational record continues to be identified through:
+
+```text
+record_type
+record_identifier
+```
+
+FO-022 does not introduce direct foreign keys from AuditEvent to every operational model.
+
+## Read-Only Behaviour
+
+The FO-022 website interface is read only.
+
+It does not provide:
+
+```text
+Create Audit Event
+Edit Audit Event
+Delete Audit Event
+```
+
+controls.
+
+FO-022 does not introduce website endpoints for AuditEvent creation, editing or deletion.
+
+The existing AuditEvent model and Django administration behaviour remain unchanged.
+
+Synthetic AuditEvent records may still be entered through Django administration for development and verification purposes.
+
+Existing AuditEvent records remain read only through normal Django administration.
+
+AuditEvent deletion remains disabled through normal Django administration.
+
+## Access Control
+
+AuditEvent website access is permitted for:
+
+```text
+Operations Manager
+System Administrator
+Django superuser
+```
+
+The following ForgeOps roles are denied access:
+
+```text
+Operator
+Production Supervisor
+Quality Specialist
+Manufacturing Engineer
+```
+
+Unauthorised authenticated requests return:
+
+```text
+403 Forbidden
+```
+
+Unauthenticated requests are redirected to the login workflow.
+
+Permission enforcement occurs on the Django server.
+
+The interface does not rely only on hidden navigation controls for security.
+
+## Audit Event Filtering
+
+FO-022 supports filtering existing AuditEvent records by:
+
+```text
+Action Type
+Record Type
+```
+
+Filtering uses GET query parameters.
+
+The filters may be used individually or together.
+
+For example:
+
+```text
+/audit-events/?action_type=COMPLETED
+```
+
+and:
+
+```text
+/audit-events/?action_type=STARTED&record_type=ProductionRun
+```
+
+The Record Type selector is derived from record types that currently exist in AuditEvent data.
+
+The Clear action removes active filters and restores the unfiltered AuditEvent list.
+
+## Empty State
+
+When no AuditEvent records match the active filters, the page displays:
+
+```text
+No audit events recorded.
+```
+
+This behaviour was manually verified using a filter combination with no matching synthetic records.
+
+## Manual FO-022 Verification
+
+FO-022 was manually verified through the ForgeOps website using synthetic AuditEvent records.
+
+Access verification demonstrated:
+
+```text
+Django superuser     -> allowed
+Operations Manager   -> allowed
+System Administrator -> allowed
+Operator             -> 403 Forbidden
+```
+
+Additional role restrictions are covered by automated tests.
+
+Three synthetic AuditEvent records were used for filter and ordering verification:
+
+```text
+Created
+WorkOrder
+FO-022-WO-001
+
+Completed
+ProductionRun
+FO-022-RUN-002
+
+Started
+ProductionRun
+WO-2026-0001 / LINE-A01
+```
+
+The interface displayed the records newest first.
+
+Filtering by:
+
+```text
+Action Type: Completed
+```
+
+returned only:
+
+```text
+FO-022-RUN-002
+```
+
+Filtering by:
+
+```text
+Action Type: Created
+Record Type: ProductionRun
+```
+
+returned no matching AuditEvent records and displayed the empty state.
+
+Clearing filters restored the unfiltered AuditEvent history.
+
+All FO-022 manual verification records were synthetic.
+
+## Automated FO-022 Validation
+
+FO-022 introduces the dedicated test class:
+
+```text
+AuditEventInterfaceTests
+```
+
+in:
+
+```text
+core/tests.py
+```
+
+The dedicated test run produced:
+
+```text
+Ran 24 tests
+OK
+```
+
+The FO-022 automated tests verify:
+
+- AuditEvent website access requires authentication
+- Operations Manager can access audit history
+- System Administrator can access audit history
+- Django superuser can access audit history
+- Operator cannot access audit history
+- Production Supervisor cannot access audit history
+- Quality Specialist cannot access audit history
+- Manufacturing Engineer cannot access audit history
+- existing AuditEvent records are displayed
+- AuditEvents are displayed newest first
+- Action Type filtering works
+- Record Type filtering works
+- Action Type and Record Type filters may be combined
+- combined filters may return the empty state
+- the unfiltered list restores all AuditEvent records
+- responsible User is displayed
+- action type is displayed
+- record type is displayed
+- record identifier is displayed
+- description is displayed
+- creation timestamp is displayed
+- no AuditEvent creation control is exposed
+- no AuditEvent editing control is exposed
+- no AuditEvent deletion control is exposed
+
+## Full Core Validation
+
+The complete Core regression suite after FO-022 produced:
+
+```text
+Ran 320 tests in 24.532s
+OK
+```
+
+The previous verified FO-021 baseline was:
+
+```text
+296 tests
+```
+
+FO-022 therefore adds:
+
+```text
+24 tests
+```
+
+resulting in:
+
+```text
+320 Core tests
+```
+
+Additional verification produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+
+python manage.py makemigrations --check --dry-run
+No changes detected
+
+git diff --check
+PASS
+```
+
+Python syntax validation also passed for the modified application files.
+
+## Migration Verification
+
+FO-022 does not modify the database schema.
+
+The migration sequence remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-022 migration is required.
+
+## FO-022 Files Added
+
+```text
+core/templates/core/audit_event_list.html
+```
+
+## FO-022 Files Updated
+
+```text
+core/views.py
+core/urls.py
+core/tests.py
+docs/database-design.md
+docs/role-permissions.md
+```
+
+## FO-022 Acceptance Criteria Verified
+
+- a dedicated AuditEvent website interface is implemented
+- the interface is available at `/audit-events/`
+- AuditEvent access requires authentication
+- Operations Managers may access AuditEvent history
+- System Administrators may access AuditEvent history
+- Django superusers may access AuditEvent history
+- Operators cannot access AuditEvent history
+- Production Supervisors cannot access AuditEvent history
+- Quality Specialists cannot access AuditEvent history
+- Manufacturing Engineers cannot access AuditEvent history
+- unauthorised authenticated access returns 403 Forbidden
+- AuditEvent records display creation timestamp
+- AuditEvent records display responsible User
+- AuditEvent records display action type
+- AuditEvent records display record type
+- AuditEvent records display record identifier
+- AuditEvent records display description
+- AuditEvent records are displayed newest first
+- Action Type filtering is implemented
+- Record Type filtering is implemented
+- filters may be combined
+- filters may be cleared
+- an empty filtered result displays a clear empty state
+- the website interface exposes no AuditEvent creation control
+- the website interface exposes no AuditEvent editing control
+- the website interface exposes no AuditEvent deletion control
+- existing AuditEvent model behaviour remains unchanged
+- existing Django administration behaviour remains unchanged
+- no automatic AuditEvent generation is introduced
+- no database migration is introduced
+- all manual verification data is synthetic
+- 24 dedicated FO-022 tests pass
+- 320 Core tests pass
+- Django system checks pass
+- migration drift check passes
+- Git whitespace validation passes
+
+## FO-022 Out of Scope
+
+FO-022 does not implement:
+
+- automatic AuditEvent creation
+- automatic ProductionRun lifecycle audit logging
+- automatic ProductionEntry audit logging
+- automatic DowntimeEvent audit logging
+- automatic QualityInspection audit logging
+- automatic WorkOrder audit logging
+- automatic configuration-change audit logging
+- AuditEvent creation through the normal ForgeOps website
+- AuditEvent editing through the normal ForgeOps website
+- AuditEvent deletion through the normal ForgeOps website
+- record-level audit visibility for Production Supervisors
+- record-level audit visibility for Quality Specialists
+- audit access for Manufacturing Engineers
+- audit export
+- CSV audit export
+- PDF audit export
+- audit retention policies
+- audit archival workflows
+- regulatory audit certification
+- electronic signatures
+- 21 CFR Part 11 compliance
+- SIEM integration
+- external audit integration
+- REST API audit endpoints
+- machine-generated audit records
+- MES-generated audit records
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.

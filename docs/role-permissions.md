@@ -6,6 +6,12 @@ This document defines the permissions assigned to each ForgeOps user role.
 
 Permissions must be enforced on the server. Hiding a button in the interface is not sufficient protection.
 
+The matrix reflects the currently implemented ForgeOps website behaviour where that behaviour has been explicitly defined and tested.
+
+Future roadmap behaviour must not be treated as implemented until a dedicated issue defines and verifies it.
+
+All test and demonstration data must remain synthetic.
+
 ## Roles
 
 - Operator
@@ -59,7 +65,7 @@ Permissions must be enforced on the server. Hiding a button in the interface is 
 | Complete production run | No | Yes | No | No | No | No |
 | View line dashboard | Limited assigned data | Yes | Yes | Yes | Yes | No |
 | View site-level dashboard | No | Limited | Limited | Yes | Yes | No |
-| View audit history | No | Limited relevant records | Limited relevant records | Read only | Read only | Yes |
+| View audit history | No | No | No | No | Yes | Yes |
 | Edit audit records | No | No | No | No | No | No |
 
 ---
@@ -70,77 +76,266 @@ Permissions must be enforced on the server. Hiding a button in the interface is 
 
 Every role receives only the permissions required to perform its responsibilities.
 
+Permissions must be introduced deliberately through defined ForgeOps workflows.
+
+A role should not gain additional operational access merely because it has broad platform visibility.
+
 ### Rule 2: Assigned Production Access
 
-Operators can only access production runs assigned to them unless an authorised supervisor grants additional access.
+Operators can only access Production Runs assigned to them unless an authorised workflow explicitly grants additional access.
+
+Assigned-production behaviour remains subject to the implementation state of the relevant roadmap issue.
 
 ### Rule 3: Completed Record Protection
 
-After a production run is completed:
+After a Production Run is completed:
 
-- Operators cannot add new production entries.
-- Operators cannot change quantities.
-- Downtime events cannot be opened.
-- Inspection results cannot be changed through normal workflows.
-- Corrections require an authorised process and must create an audit event.
+- Operators cannot add new Production Entries.
+- Operators cannot change quantities through normal workflows.
+- Downtime Events cannot be opened.
+- completed Quality Inspection records cannot be completed again.
+- completed Production Runs cannot be restarted, paused, resumed, completed again or cancelled through the implemented lifecycle workflows.
+- corrections require an authorised process.
+- any associated automatic AuditEvent creation must be introduced through a future workflow that explicitly defines and tests it.
 
 ### Rule 4: Audit Record Protection
 
-Audit records are created automatically by the system.
+Existing AuditEvent records are immutable through the normal ForgeOps website interface.
 
-No user, including the system administrator, can edit or delete audit records through the normal application interface.
+The FO-022 Audit Event interface is read only and does not provide create, edit or delete controls.
+
+Existing AuditEvent records are also read only through normal Django administration.
+
+AuditEvent deletion is disabled through normal Django administration.
+
+Synthetic AuditEvent records may be entered manually through Django administration for development and verification purposes.
+
+ForgeOps does not currently create AuditEvent records automatically for every operational action.
+
+Automatic AuditEvent generation remains reserved for future roadmap issues that explicitly define and test the relevant behaviour.
 
 ### Rule 5: Manager Access
 
-Operations managers mainly have read-only access.
+Operations Managers mainly receive read-only operational access.
 
-They can view dashboards, production results, downtime, inspections and audit information, but they do not normally create or alter operational records.
+They can inspect dashboards, production information and AuditEvent history where an implemented workflow permits it.
+
+FO-022 explicitly permits Operations Managers to access the read-only Audit Event website interface.
+
+Operations Managers do not normally create or modify production records through current ForgeOps operational workflows.
 
 ### Rule 6: Administrator Separation
 
-The system administrator manages:
+The System Administrator role is primarily responsible for platform and configuration administration.
+
+The role is associated with responsibilities such as:
 
 - Users
 - Roles
 - Products
-- Production lines
+- Production Lines
 - Shifts
-- Downtime reasons
+- Downtime Reasons
 - System configuration
 - Audit access
 
-The system administrator does not automatically receive permission to create or alter production records.
+The System Administrator role does not automatically own manufacturing decisions merely because it manages the platform.
+
+Individual ForgeOps workflows may explicitly grant the System Administrator additional permissions.
+
+Where such permission exists, it must be defined and enforced by that workflow.
+
+FO-022 explicitly permits System Administrators to access the read-only Audit Event interface.
 
 ### Rule 7: Server-Side Enforcement
 
 Every permission must be checked by Django on the server.
 
-Interface controls may hide unavailable actions, but the server must still reject unauthorised requests.
+Interface controls may hide unavailable actions, but hidden buttons are not security controls.
 
-### Rule 8: Audit Events
+Unauthorised requests must still be rejected by the server when a User manually enters or submits a restricted endpoint.
 
-The following actions must create audit events:
+Implemented ForgeOps workflows currently use controlled responses such as:
+
+```text
+403 Forbidden
+```
+
+for authenticated Users who attempt unauthorised actions.
+
+Unauthenticated Users are redirected through the authentication workflow where appropriate.
+
+### Rule 8: Audit Event Roadmap
+
+FO-022 provides read-only website access to existing AuditEvent records.
+
+The following operational actions remain candidates for future automatic AuditEvent generation:
 
 - User or role creation
 - Configuration changes
-- Work-order creation or cancellation
-- Production-run assignment
-- Production-run start
+- WorkOrder creation or cancellation
+- ProductionRun assignment
+- ProductionRun lifecycle transitions
 - Production quantity entry
 - Downtime opening or closing
-- Inspection creation or update
-- Production-run completion
+- Quality Inspection creation or completion
 - Authorised record correction
+
+These actions do not automatically create AuditEvent records unless a future roadmap issue explicitly implements and tests that behaviour.
+
+### Rule 9: Audit History Access
+
+The implemented FO-022 Audit Event website interface is available to:
+
+- Operations Manager
+- System Administrator
+- Django superuser
+
+The following roles do not have access to the FO-022 Audit Event website interface:
+
+- Operator
+- Production Supervisor
+- Quality Specialist
+- Manufacturing Engineer
+
+Authenticated Users without permission receive:
+
+```text
+403 Forbidden
+```
+
+Django superuser access is implemented as an application-level override and is not represented as a separate column in the role matrix.
+
+### Rule 10: Audit Interface Scope
+
+The FO-022 Audit Event interface is available at:
+
+```text
+/audit-events/
+```
+
+It displays existing AuditEvent records including:
+
+- created timestamp
+- responsible User
+- action type
+- record type
+- record identifier
+- description
+
+The interface supports filtering by:
+
+- Action Type
+- Record Type
+
+The interface remains read only.
+
+It does not provide:
+
+- AuditEvent creation
+- AuditEvent editing
+- AuditEvent deletion
+- automatic AuditEvent generation
+- audit export
+- regulatory audit certification
+- electronic signatures
+- SIEM integration
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+---
+
+## Current AuditEvent Behaviour
+
+The current AuditEvent architecture was introduced in FO-010.
+
+AuditEvent records contain:
+
+- User
+- Action Type
+- Record Type
+- Record Identifier
+- Description
+- Created timestamp
+
+Controlled Action Type values are:
+
+```text
+CREATED
+UPDATED
+ASSIGNED
+STARTED
+COMPLETED
+CANCELLED
+OPENED
+CLOSED
+CORRECTED
+```
+
+Existing AuditEvent records are ordered newest first.
+
+The affected operational record is identified using:
+
+```text
+record_type
+record_identifier
+```
+
+rather than a direct foreign key to every possible ForgeOps model.
+
+The AuditEvent User relationship uses protected deletion.
+
+A User referenced by an AuditEvent cannot be deleted while the AuditEvent exists.
+
+---
+
+## FO-022 Audit Access Decisions
+
+FO-022 resolves the website access rules for existing AuditEvent history.
+
+Allowed:
+
+```text
+Operations Manager
+System Administrator
+Django superuser
+```
+
+Blocked:
+
+```text
+Operator
+Production Supervisor
+Quality Specialist
+Manufacturing Engineer
+```
+
+The interface is read only.
+
+The permission is enforced in Django server-side logic.
+
+The interface does not depend on hidden navigation elements for protection.
+
+FO-022 does not implement record-level audit visibility for Supervisors, Quality Specialists or Manufacturing Engineers.
+
+Any future limited or record-specific audit access must be introduced through another roadmap issue that explicitly defines the visibility rules.
 
 ---
 
 ## Initial Access Decisions
 
-1. Operators only see assigned production runs.
-2. Supervisors control work orders and production-run completion.
-3. Quality specialists control inspection results.
-4. Manufacturing engineers analyse data but do not alter production records.
-5. Operations managers receive primarily read-only access.
-6. System administrators manage the platform but do not own production decisions.
-7. Completed records are locked against normal editing.
-8. Audit records are immutable through the application.
+1. Operators only see assigned Production Runs where the relevant workflow supports assignment-aware access.
+2. Production Supervisors control defined ProductionRun lifecycle and manufacturing workflows.
+3. Quality Specialists control the implemented QualityInspection website workflow.
+4. Manufacturing Engineers mainly analyse operational data and do not currently receive FO-022 Audit Event access.
+5. Operations Managers receive primarily read-only access and may view FO-022 Audit Event history.
+6. System Administrators manage the platform and may view FO-022 Audit Event history.
+7. Django superusers retain application-level override access where the implemented workflow explicitly supports it.
+8. Completed operational records are protected against unsupported lifecycle changes.
+9. Existing AuditEvent records are read only through the normal ForgeOps website interface.
+10. Existing AuditEvent records are read only through normal Django administration.
+11. AuditEvent deletion is disabled through normal Django administration.
+12. Synthetic AuditEvent records may be manually entered through Django administration for development and verification.
+13. Automatic AuditEvent generation is not currently implemented globally.
+14. Future automatic audit behaviour must be introduced only through roadmap issues that explicitly define and test it.
+15. All test and demonstration data must remain synthetic.

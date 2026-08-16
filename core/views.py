@@ -12,6 +12,7 @@ from .forms import (
     WorkOrderForm,
 )
 from .models import (
+    AuditEvent,
     DowntimeEvent,
     Product,
     ProductionEntry,
@@ -167,6 +168,18 @@ def user_can_complete_quality_inspections(user):
     ).exists()
 
 
+def user_can_view_audit_events(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Operations Manager",
+            "System Administrator",
+        ]
+    ).exists()
+
+
 @login_required
 def dashboard_router(request):
     if request.user.is_superuser:
@@ -277,6 +290,55 @@ def dashboard_summary(request):
         request,
         "core/dashboard_summary.html",
         context,
+    )
+
+
+@login_required
+def audit_event_list(request):
+    if not user_can_view_audit_events(request.user):
+        raise PermissionDenied(
+            "You do not have permission to view Audit Events."
+        )
+
+    audit_events = AuditEvent.objects.select_related(
+        "user"
+    ).all()
+
+    selected_action_type = request.GET.get(
+        "action_type",
+        "",
+    )
+    selected_record_type = request.GET.get(
+        "record_type",
+        "",
+    )
+
+    if selected_action_type:
+        audit_events = audit_events.filter(
+            action_type=selected_action_type
+        )
+
+    if selected_record_type:
+        audit_events = audit_events.filter(
+            record_type=selected_record_type
+        )
+
+    record_types = (
+        AuditEvent.objects.order_by("record_type")
+        .values_list("record_type", flat=True)
+        .distinct()
+    )
+
+    return render(
+        request,
+        "core/audit_event_list.html",
+        {
+            "audit_events": audit_events,
+            "action_type_choices": AuditEvent.ActionType.choices,
+            "record_types": record_types,
+            "selected_action_type": selected_action_type,
+            "selected_record_type": selected_record_type,
+        },
     )
 
 
