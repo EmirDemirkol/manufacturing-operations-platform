@@ -220,6 +220,9 @@ class WorkOrderInterfaceTests(TestCase):
         cls.supervisor_group = Group.objects.get(
             name="Production Supervisor"
         )
+        cls.sysadmin_group = Group.objects.get(
+            name="System Administrator"
+        )
 
         cls.operator = User.objects.create_user(
             username="fo011_operator",
@@ -232,6 +235,12 @@ class WorkOrderInterfaceTests(TestCase):
             password=cls.password,
         )
         cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.sysadmin = User.objects.create_user(
+            username="fo023_workorder_sysadmin",
+            password=cls.password,
+        )
+        cls.sysadmin.groups.add(cls.sysadmin_group)
 
         cls.product = Product.objects.create(
             code="PRD-FO011-A",
@@ -347,6 +356,19 @@ class WorkOrderInterfaceTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_sysadmin_can_access_work_order_create_page(self):
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.get(
+            reverse("work-order-create")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Create Work Order",
+        )
 
     def test_operator_does_not_see_create_work_order_button(self):
         self.client.force_login(self.operator)
@@ -586,6 +608,9 @@ class ProductionRunInterfaceTests(TestCase):
         cls.supervisor_group = Group.objects.get(
             name="Production Supervisor"
         )
+        cls.sysadmin_group = Group.objects.get(
+            name="System Administrator"
+        )
 
         cls.operator = User.objects.create_user(
             username="fo012_operator",
@@ -598,6 +623,12 @@ class ProductionRunInterfaceTests(TestCase):
             password=cls.password,
         )
         cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.sysadmin = User.objects.create_user(
+            username="fo023_productionrun_sysadmin",
+            password=cls.password,
+        )
+        cls.sysadmin.groups.add(cls.sysadmin_group)
 
         cls.site = Site.objects.create(
             code="FO012-SITE",
@@ -790,6 +821,24 @@ class ProductionRunInterfaceTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_sysadmin_can_access_production_run_create_page(self):
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.get(
+            reverse(
+                "production-run-create",
+                kwargs={
+                    "work_order_pk": self.work_order.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Create Production Run",
+        )
 
     def test_supervisor_can_create_valid_production_run(self):
         self.client.force_login(self.supervisor)
@@ -1175,6 +1224,30 @@ class ProductionRunInterfaceTests(TestCase):
             self.planned_production_run.ended_at
         )
 
+    def test_sysadmin_can_start_planned_production_run(self):
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "production-run-start",
+                kwargs={
+                    "pk": self.planned_production_run.pk,
+                },
+            )
+        )
+
+        self.planned_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.planned_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+        self.assertIsNotNone(
+            self.planned_production_run.started_at
+        )
+
+
     def test_active_production_run_cannot_be_started_again(self):
         self.client.force_login(self.supervisor)
 
@@ -1359,6 +1432,46 @@ class ProductionRunInterfaceTests(TestCase):
         self.assertIsNone(
             self.active_production_run.ended_at
         )
+
+    def test_sysadmin_can_pause_active_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "production-run-pause",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.PAUSED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNone(
+            self.active_production_run.ended_at
+        )
+
 
     def test_paused_production_run_cannot_be_paused_again(self):
         self.active_production_run.status = ProductionRun.Status.PAUSED
@@ -1637,6 +1750,48 @@ class ProductionRunInterfaceTests(TestCase):
         self.assertIsNone(
             self.active_production_run.ended_at
         )
+
+    def test_sysadmin_can_resume_paused_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.status = ProductionRun.Status.PAUSED
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "production-run-resume",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.ACTIVE,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNone(
+            self.active_production_run.ended_at
+        )
+
 
     def test_active_production_run_cannot_be_resumed(self):
         self.client.force_login(self.supervisor)
@@ -1946,6 +2101,46 @@ class ProductionRunInterfaceTests(TestCase):
             self.active_production_run.ended_at,
             started_at,
         )
+
+    def test_sysadmin_can_complete_active_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "production-run-complete",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.COMPLETED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNotNone(
+            self.active_production_run.ended_at
+        )
+
 
     def test_planned_production_run_cannot_be_completed(self):
         self.client.force_login(self.supervisor)
@@ -2325,6 +2520,46 @@ class ProductionRunInterfaceTests(TestCase):
             started_at,
         )
 
+    def test_sysadmin_can_cancel_active_production_run(self):
+        started_at = timezone.now()
+
+        self.active_production_run.started_at = started_at
+        self.active_production_run.ended_at = None
+        self.active_production_run.save(
+            update_fields=[
+                "started_at",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "production-run-cancel",
+                kwargs={
+                    "pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.active_production_run.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.active_production_run.status,
+            ProductionRun.Status.CANCELLED,
+        )
+        self.assertEqual(
+            self.active_production_run.started_at,
+            started_at,
+        )
+        self.assertIsNotNone(
+            self.active_production_run.ended_at
+        )
+
+
     def test_supervisor_can_cancel_paused_production_run(self):
         started_at = timezone.now()
 
@@ -2480,6 +2715,9 @@ class ProductionEntryInterfaceTests(TestCase):
         cls.supervisor_group = Group.objects.get(
             name="Production Supervisor"
         )
+        cls.sysadmin_group = Group.objects.get(
+            name="System Administrator"
+        )
 
         cls.operator = User.objects.create_user(
             username="fo018_operator",
@@ -2492,6 +2730,12 @@ class ProductionEntryInterfaceTests(TestCase):
             password=cls.password,
         )
         cls.supervisor.groups.add(cls.supervisor_group)
+
+        cls.sysadmin = User.objects.create_user(
+            username="fo023_productionentry_sysadmin",
+            password=cls.password,
+        )
+        cls.sysadmin.groups.add(cls.sysadmin_group)
 
         cls.site = Site.objects.create(
             code="FO018-SITE",
@@ -2618,6 +2862,24 @@ class ProductionEntryInterfaceTests(TestCase):
 
     def test_supervisor_can_access_production_entry_create_page(self):
         self.client.force_login(self.supervisor)
+
+        response = self.client.get(
+            reverse(
+                "production-entry-create",
+                kwargs={
+                    "production_run_pk": self.active_production_run.pk,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Record Production Entry",
+        )
+
+    def test_sysadmin_can_access_production_entry_create_page(self):
+        self.client.force_login(self.sysadmin)
 
         response = self.client.get(
             reverse(
@@ -3169,6 +3431,9 @@ class DowntimeEventInterfaceTests(TestCase):
         cls.quality_group = Group.objects.get(
             name="Quality Specialist"
         )
+        cls.sysadmin_group = Group.objects.get(
+            name="System Administrator"
+        )
 
         cls.operator = User.objects.create_user(
             username="fo019_operator",
@@ -3187,6 +3452,12 @@ class DowntimeEventInterfaceTests(TestCase):
             password=cls.password,
         )
         cls.quality_user.groups.add(cls.quality_group)
+
+        cls.sysadmin = User.objects.create_user(
+            username="fo023_downtime_sysadmin",
+            password=cls.password,
+        )
+        cls.sysadmin.groups.add(cls.sysadmin_group)
 
         cls.site = Site.objects.create(
             code="FO019-SITE",
@@ -3542,6 +3813,51 @@ class DowntimeEventInterfaceTests(TestCase):
             downtime_event.opened_by,
             self.supervisor,
         )
+
+    def test_sysadmin_can_create_valid_downtime_event(self):
+        self.client.force_login(self.sysadmin)
+
+        started_at = timezone.now() - timedelta(minutes=10)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-create",
+                kwargs={
+                    "production_run_pk": (
+                        self.active_production_run.pk
+                    ),
+                },
+            ),
+            {
+                "downtime_reason": self.downtime_reason.pk,
+                "started_at": started_at.strftime(
+                    "%Y-%m-%dT%H:%M"
+                ),
+                "notes": (
+                    "Synthetic FO-023 sysadmin downtime event."
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+        downtime_event = DowntimeEvent.objects.get()
+
+        self.assertEqual(
+            downtime_event.production_run,
+            self.active_production_run,
+        )
+        self.assertEqual(
+            downtime_event.opened_by,
+            self.sysadmin,
+        )
+        self.assertIsNone(
+            downtime_event.ended_at
+        )
+        self.assertIsNone(
+            downtime_event.closed_by
+        )
+
 
     def test_created_downtime_event_belongs_to_requested_run(self):
         self.client.force_login(self.operator)
@@ -3922,6 +4238,37 @@ class DowntimeEventInterfaceTests(TestCase):
         self.assertIsNotNone(
             downtime_event.ended_at
         )
+
+    def test_sysadmin_can_close_open_downtime_event(self):
+        downtime_event = DowntimeEvent.objects.create(
+            production_run=self.active_production_run,
+            downtime_reason=self.downtime_reason,
+            started_at=timezone.now() - timedelta(minutes=20),
+            opened_by=self.operator,
+        )
+
+        self.client.force_login(self.sysadmin)
+
+        response = self.client.post(
+            reverse(
+                "downtime-event-close",
+                kwargs={
+                    "pk": downtime_event.pk,
+                },
+            )
+        )
+
+        downtime_event.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            downtime_event.closed_by,
+            self.sysadmin,
+        )
+        self.assertIsNotNone(
+            downtime_event.ended_at
+        )
+
 
     def test_quality_user_cannot_close_downtime_event(self):
         downtime_event = DowntimeEvent.objects.create(
@@ -5130,348 +5477,6 @@ class QualityInspectionInterfaceTests(TestCase):
         )
 
 
-class DashboardSummaryInterfaceTests(TestCase):
-    password = "ForgeOps-Test-Password-2026!"
-
-    @classmethod
-    def setUpTestData(cls):
-        User = get_user_model()
-
-        cls.operator_group = Group.objects.get(
-            name="Operator"
-        )
-
-        cls.operator = User.objects.create_user(
-            username="fo021_operator",
-            password=cls.password,
-        )
-        cls.operator.groups.add(
-            cls.operator_group
-        )
-
-        cls.product = Product.objects.create(
-            code="PRD-FO021",
-            name="Synthetic FO-021 Product",
-            description=(
-                "Synthetic product for FO-021 "
-                "dashboard summary tests."
-            ),
-        )
-
-        cls.site = Site.objects.create(
-            code="SITE-FO021",
-            name="Synthetic FO-021 Site",
-        )
-
-        cls.production_area = ProductionArea.objects.create(
-            site=cls.site,
-            code="AREA-FO021",
-            name="Synthetic FO-021 Area",
-        )
-
-        cls.production_line = ProductionLine.objects.create(
-            production_area=cls.production_area,
-            code="LINE-FO021",
-            name="Synthetic FO-021 Line",
-        )
-
-        cls.shift = Shift.objects.create(
-            name="FO-021 Shift",
-            start_time=time(8, 0),
-            end_time=time(16, 0),
-        )
-
-        cls.downtime_reason = DowntimeReason.objects.create(
-            code="FO021-DOWN",
-            name="Synthetic FO-021 Downtime",
-            description=(
-                "Synthetic downtime reason for "
-                "dashboard summary tests."
-            ),
-        )
-
-        cls.active_work_order = WorkOrder.objects.create(
-            order_number="WO-FO021-ACTIVE",
-            product=cls.product,
-            planned_quantity=100,
-            status=WorkOrder.Status.IN_PROGRESS,
-        )
-
-        cls.paused_work_order = WorkOrder.objects.create(
-            order_number="WO-FO021-PAUSED",
-            product=cls.product,
-            planned_quantity=100,
-            status=WorkOrder.Status.IN_PROGRESS,
-        )
-
-        cls.completed_work_order = WorkOrder.objects.create(
-            order_number="WO-FO021-COMPLETED",
-            product=cls.product,
-            planned_quantity=100,
-            status=WorkOrder.Status.COMPLETED,
-        )
-
-        cls.cancelled_work_order = WorkOrder.objects.create(
-            order_number="WO-FO021-CANCELLED",
-            product=cls.product,
-            planned_quantity=100,
-            status=WorkOrder.Status.CANCELLED,
-        )
-
-        cls.active_run = ProductionRun.objects.create(
-            work_order=cls.active_work_order,
-            production_line=cls.production_line,
-            shift=cls.shift,
-            status=ProductionRun.Status.ACTIVE,
-            started_at=timezone.now(),
-        )
-
-        cls.paused_run = ProductionRun.objects.create(
-            work_order=cls.paused_work_order,
-            production_line=cls.production_line,
-            shift=cls.shift,
-            status=ProductionRun.Status.PAUSED,
-            started_at=timezone.now(),
-        )
-
-        cls.completed_run = ProductionRun.objects.create(
-            work_order=cls.completed_work_order,
-            production_line=cls.production_line,
-            shift=cls.shift,
-            status=ProductionRun.Status.COMPLETED,
-            started_at=(
-                timezone.now()
-                - timedelta(hours=2)
-            ),
-            ended_at=(
-                timezone.now()
-                - timedelta(hours=1)
-            ),
-        )
-
-        cls.cancelled_run = ProductionRun.objects.create(
-            work_order=cls.cancelled_work_order,
-            production_line=cls.production_line,
-            shift=cls.shift,
-            status=ProductionRun.Status.CANCELLED,
-        )
-
-    def test_dashboard_summary_requires_login(self):
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            response.status_code,
-            302,
-        )
-
-    def test_authenticated_user_can_access_dashboard_summary(self):
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            response.status_code,
-            200,
-        )
-
-        self.assertTemplateUsed(
-            response,
-            "core/dashboard_summary.html",
-        )
-
-    def test_dashboard_summary_displays_production_run_counts(self):
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            response.context[
-                "active_production_run_count"
-            ],
-            1,
-        )
-        self.assertEqual(
-            response.context[
-                "paused_production_run_count"
-            ],
-            1,
-        )
-        self.assertEqual(
-            response.context[
-                "completed_production_run_count"
-            ],
-            1,
-        )
-        self.assertEqual(
-            response.context[
-                "cancelled_production_run_count"
-            ],
-            1,
-        )
-
-    def test_dashboard_summary_displays_open_downtime_count(self):
-        DowntimeEvent.objects.create(
-            production_run=self.active_run,
-            downtime_reason=self.downtime_reason,
-            started_at=timezone.now(),
-            opened_by=self.operator,
-        )
-
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            response.context[
-                "open_downtime_event_count"
-            ],
-            1,
-        )
-
-    def test_dashboard_summary_displays_pending_inspection_count(self):
-        QualityInspection.objects.create(
-            production_run=self.active_run,
-            result=QualityInspection.Result.PENDING,
-            notes="Synthetic pending FO-021 inspection.",
-        )
-
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            response.context[
-                "pending_quality_inspection_count"
-            ],
-            1,
-        )
-
-    def test_recent_production_entries_are_limited_to_five(self):
-        for quantity in range(1, 7):
-            ProductionEntry.objects.create(
-                production_run=self.active_run,
-                good_quantity=quantity,
-                rejected_quantity=0,
-                recorded_by=self.operator,
-            )
-
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            len(
-                response.context[
-                    "recent_production_entries"
-                ]
-            ),
-            5,
-        )
-
-    def test_recent_downtime_events_are_limited_to_five(self):
-        for offset in range(6):
-            DowntimeEvent.objects.create(
-                production_run=self.active_run,
-                downtime_reason=self.downtime_reason,
-                started_at=(
-                    timezone.now()
-                    - timedelta(minutes=offset + 1)
-                ),
-                ended_at=(
-                    timezone.now()
-                    - timedelta(minutes=offset)
-                ),
-                opened_by=self.operator,
-                closed_by=self.operator,
-            )
-
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            len(
-                response.context[
-                    "recent_downtime_events"
-                ]
-            ),
-            5,
-        )
-
-    def test_recent_quality_inspections_are_limited_to_five(self):
-        for offset in range(6):
-            QualityInspection.objects.create(
-                production_run=self.active_run,
-                result=QualityInspection.Result.PENDING,
-                notes=(
-                    f"Synthetic FO-021 inspection {offset}."
-                ),
-            )
-
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertEqual(
-            len(
-                response.context[
-                    "recent_quality_inspections"
-                ]
-            ),
-            5,
-        )
-
-    def test_dashboard_summary_displays_empty_states(self):
-        self.client.force_login(
-            self.operator
-        )
-
-        response = self.client.get(
-            reverse("dashboard-summary")
-        )
-
-        self.assertContains(
-            response,
-            "No production entries recorded.",
-        )
-        self.assertContains(
-            response,
-            "No downtime events recorded.",
-        )
-        self.assertContains(
-            response,
-            "No quality inspections recorded.",
-        )
 
 
 class DashboardSummaryInterfaceTests(TestCase):

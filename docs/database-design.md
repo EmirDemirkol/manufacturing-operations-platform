@@ -8456,3 +8456,437 @@ FO-022 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 29. FO-023 Current State
+
+## FO-023: Complete Critical Automated Test Hardening
+
+FO-023 audits and hardens the existing ForgeOps automated test suite before MVP delivery.
+
+ForgeOps already contains substantial model and interface coverage.
+
+FO-023 therefore does not replace or rewrite the existing test suite.
+
+Instead, it:
+
+- audits the existing critical test coverage
+- removes a confirmed duplicate test-class defect
+- identifies meaningful permission coverage gaps
+- adds focused regression tests only where justified
+- preserves existing stable workflows
+- verifies the complete Core regression suite
+
+FO-023 does not introduce a new manufacturing workflow.
+
+FO-023 does not modify the database schema.
+
+FO-023 does not introduce automatic `AuditEvent` generation.
+
+## Verified Pre-FO-023 Baseline
+
+The verified Core regression baseline after FO-022 was:
+
+```text
+Ran 320 tests
+OK
+```
+
+FO-023 uses this as the effective pre-change test baseline.
+
+## Confirmed Test-Suite Defect
+
+The audit identified two top-level classes named:
+
+```text
+DashboardSummaryInterfaceTests
+```
+
+in:
+
+```text
+core/tests.py
+```
+
+The two classes were structurally identical.
+
+Each class physically contained:
+
+```text
+9 tests
+```
+
+Because Python replaces an earlier module-level class binding when another class with the same name is defined later, the first duplicate `DashboardSummaryInterfaceTests` class did not provide independent Django test coverage.
+
+The source therefore physically contained nine redundant test methods that were not independently collected by Django.
+
+The redundant class was removed.
+
+After correction, the source contains exactly one:
+
+```text
+DashboardSummaryInterfaceTests
+```
+
+containing:
+
+```text
+9 tests
+```
+
+Removing the redundant class did not reduce effective test coverage.
+
+The effective Core test count remained:
+
+```text
+320 tests
+```
+
+immediately after the duplicate cleanup.
+
+## Critical Coverage Audit
+
+The existing ForgeOps suite was reviewed rather than rewritten.
+
+The audit confirmed substantial existing coverage for:
+
+- authentication
+- role routing
+- role dashboard access
+- WorkOrder validation
+- ProductionRun creation
+- ProductionRun lifecycle transitions
+- ProductionEntry validation
+- production quantity aggregation
+- DowntimeEvent creation
+- DowntimeEvent closure
+- downtime restrictions
+- QualityInspection creation
+- QualityInspection completion
+- inspection result handling
+- ProductionRun completion restrictions
+- dashboard-summary counts
+- dashboard-summary recent-record limits
+- AuditEvent model behaviour
+- AuditEvent website access
+- AuditEvent website filtering
+- database constraints
+- deletion protection
+- model validation
+- Django administration registration
+
+FO-023 therefore avoids duplicating large amounts of already effective test coverage.
+
+## System Administrator Permission Audit
+
+The permission audit identified implemented System Administrator permissions that were not directly protected by interface regression tests.
+
+FO-023 adds focused System Administrator coverage for:
+
+- access to Work Order creation
+- access to Production Run creation
+- starting a PLANNED Production Run
+- pausing an ACTIVE Production Run
+- resuming a PAUSED Production Run
+- completing an ACTIVE Production Run
+- cancelling an ACTIVE Production Run
+- access to Production Entry creation
+- opening a Downtime Event
+- closing an open Downtime Event
+
+Existing `QualityInspection` coverage already verifies:
+
+- System Administrator access to QualityInspection creation
+- System Administrator completion of a pending QualityInspection
+
+Existing `AuditEvent` website coverage already verifies:
+
+- System Administrator access to AuditEvent history
+- Django superuser access to AuditEvent history
+
+FO-023 therefore does not add redundant tests for behaviour that was already directly protected.
+
+## FO-023 Regression Tests Added
+
+FO-023 adds the following ten interface regression tests:
+
+```text
+test_sysadmin_can_access_work_order_create_page
+test_sysadmin_can_access_production_run_create_page
+test_sysadmin_can_start_planned_production_run
+test_sysadmin_can_pause_active_production_run
+test_sysadmin_can_resume_paused_production_run
+test_sysadmin_can_complete_active_production_run
+test_sysadmin_can_cancel_active_production_run
+test_sysadmin_can_access_production_entry_create_page
+test_sysadmin_can_create_valid_downtime_event
+test_sysadmin_can_close_open_downtime_event
+```
+
+These tests use synthetic users and synthetic manufacturing records.
+
+## Structural Test Audit
+
+An AST comparison was performed between the pre-FO-023 `HEAD` version of:
+
+```text
+core/tests.py
+```
+
+and the current FO-023 version.
+
+The comparison confirmed:
+
+```text
+DashboardSummaryInterfaceTests:
+HEAD = 2 classes
+CURRENT = 1 class
+```
+
+The audit also confirmed:
+
+```text
+10 new test methods added
+0 existing test methods removed
+0 existing test methods modified
+```
+
+The only intentionally removed test code was the redundant duplicate `DashboardSummaryInterfaceTests` class.
+
+This confirms that FO-023 hardens the suite without rewriting existing passing tests.
+
+## Final Interface Test Inventory
+
+The final interface-test inventory in:
+
+```text
+core/tests.py
+```
+
+is:
+
+```text
+AuthenticationAndRoleTests: 9
+SeedDemoUsersCommandTests: 1
+WorkOrderInterfaceTests: 15
+ProductionRunInterfaceTests: 70
+ProductionEntryInterfaceTests: 26
+DowntimeEventInterfaceTests: 28
+QualityInspectionInterfaceTests: 25
+DashboardSummaryInterfaceTests: 9
+AuditEventInterfaceTests: 24
+```
+
+The total number of test methods physically defined in `core/tests.py` is:
+
+```text
+207
+```
+
+The model and database test suite remains in:
+
+```text
+core/test_models.py
+```
+
+## Focused Downtime Validation
+
+After adding the final FO-023 DowntimeEvent permission coverage, the dedicated DowntimeEvent interface suite produced:
+
+```text
+Ran 28 tests
+OK
+```
+
+This verifies the existing DowntimeEvent workflow together with the new System Administrator open and close regression coverage.
+
+## Full Core Validation
+
+The complete Core regression suite after FO-023 produced:
+
+```text
+Ran 330 tests in 26.282s
+OK
+```
+
+The previous verified FO-022 baseline was:
+
+```text
+320 tests
+```
+
+FO-023 adds:
+
+```text
+10 effective regression tests
+```
+
+resulting in:
+
+```text
+330 Core tests
+```
+
+The removal of the duplicate `DashboardSummaryInterfaceTests` class did not reduce the effective test count because the duplicate class had already been shadowed by the later class definition.
+
+## Additional Verification
+
+Python syntax validation passed:
+
+```text
+python -m py_compile core/tests.py
+PASS
+```
+
+Django system validation produced:
+
+```text
+python manage.py check
+System check identified no issues (0 silenced).
+```
+
+Migration drift validation produced:
+
+```text
+python manage.py makemigrations --check --dry-run
+No changes detected
+```
+
+Git whitespace validation produced:
+
+```text
+git diff --check
+PASS
+```
+
+## Migration Verification
+
+FO-023 does not modify the database schema.
+
+The migration sequence remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+No FO-023 migration is required.
+
+## Automatic AuditEvent Generation
+
+Automatic `AuditEvent` generation is not currently implemented globally.
+
+FO-023 does not introduce automatic `AuditEvent` creation for:
+
+- WorkOrder creation
+- ProductionRun lifecycle transitions
+- ProductionEntry creation
+- DowntimeEvent workflows
+- QualityInspection workflows
+- configuration changes
+
+FO-023 verifies the currently implemented `AuditEvent` model and website behaviour only.
+
+Future automatic audit behaviour must be introduced through a roadmap issue that explicitly defines and tests that behaviour.
+
+## FO-023 Files Updated
+
+```text
+core/tests.py
+docs/backlog.md
+docs/database-design.md
+```
+
+No production application file requires modification for FO-023.
+
+No template file requires modification for FO-023.
+
+No migration file is added.
+
+## FO-023 Acceptance Criteria Verified
+
+- the existing automated test suite was audited before adding new tests
+- the duplicate `DashboardSummaryInterfaceTests` class was identified
+- the duplicate classes were confirmed to be structurally identical
+- the redundant duplicate dashboard test class was removed
+- exactly one `DashboardSummaryInterfaceTests` class remains
+- the remaining dashboard test class contains 9 tests
+- removing the duplicate class did not reduce effective Django test coverage
+- authentication coverage remains present
+- role-based permission coverage remains present
+- WorkOrder validation coverage remains present
+- ProductionRun assignment and lifecycle coverage remains present
+- ProductionEntry quantity coverage remains present
+- DowntimeEvent workflow coverage remains present
+- QualityInspection result coverage remains present
+- ProductionRun completion restriction coverage remains present
+- dashboard-summary coverage remains present
+- AuditEvent model and website coverage remains present
+- System Administrator Work Order creation access is directly tested
+- System Administrator Production Run creation access is directly tested
+- System Administrator Production Run start permission is directly tested
+- System Administrator Production Run pause permission is directly tested
+- System Administrator Production Run resume permission is directly tested
+- System Administrator Production Run completion permission is directly tested
+- System Administrator Production Run cancellation permission is directly tested
+- System Administrator Production Entry creation access is directly tested
+- System Administrator DowntimeEvent opening permission is directly tested
+- System Administrator DowntimeEvent closing permission is directly tested
+- existing System Administrator QualityInspection coverage remains intact
+- existing System Administrator AuditEvent coverage remains intact
+- existing Django superuser AuditEvent coverage remains intact
+- exactly 10 effective regression tests were added
+- no existing test methods outside the intentionally removed duplicate class were removed
+- no existing test methods were modified
+- the final `core/tests.py` interface-test inventory contains 207 test methods
+- the dedicated DowntimeEvent interface suite passes 28 tests
+- the complete Core regression suite passes 330 tests
+- Python syntax validation passes
+- Django system checks pass
+- migration drift validation passes
+- Git whitespace validation passes
+- no database migration is introduced
+- no production workflow is changed
+- automatic AuditEvent generation is not introduced
+- all FO-023 test users are synthetic
+- all FO-023 manufacturing test records are synthetic
+- all test and demonstration data remains synthetic
+
+## FO-023 Out of Scope
+
+FO-023 does not implement:
+
+- automatic AuditEvent creation
+- automatic ProductionRun lifecycle audit logging
+- automatic ProductionEntry audit logging
+- automatic DowntimeEvent audit logging
+- automatic QualityInspection audit logging
+- automatic WorkOrder audit logging
+- automatic configuration-change audit logging
+- new manufacturing workflows
+- new WorkOrder behaviour
+- new ProductionRun lifecycle behaviour
+- new ProductionEntry behaviour
+- new DowntimeEvent behaviour
+- new QualityInspection behaviour
+- new dashboard analytics
+- new role definitions
+- new permission definitions
+- production-code refactoring solely for test cleanup
+- database schema changes
+- database migrations
+- Docker
+- Docker Compose
+- GitHub Actions
+- deployment configuration
+- production infrastructure
+- real manufacturing data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
