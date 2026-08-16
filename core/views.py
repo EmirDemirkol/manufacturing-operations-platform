@@ -7,6 +7,8 @@ from .forms import (
     DowntimeEventForm,
     ProductionEntryForm,
     ProductionRunForm,
+    QualityInspectionCompleteForm,
+    QualityInspectionCreateForm,
     WorkOrderForm,
 )
 from .models import (
@@ -15,6 +17,7 @@ from .models import (
     ProductionEntry,
     ProductionLine,
     ProductionRun,
+    QualityInspection,
     Shift,
     WorkOrder,
 )
@@ -140,13 +143,40 @@ def user_can_manage_downtime_events(user):
     ).exists()
 
 
+def user_can_create_quality_inspections(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Quality Specialist",
+            "System Administrator",
+        ]
+    ).exists()
+
+
+def user_can_complete_quality_inspections(user):
+    if user.is_superuser:
+        return True
+
+    return user.groups.filter(
+        name__in=[
+            "Quality Specialist",
+            "System Administrator",
+        ]
+    ).exists()
+
+
 @login_required
 def dashboard_router(request):
     if request.user.is_superuser:
         return redirect("system-administrator-dashboard")
 
     user_groups = set(
-        request.user.groups.values_list("name", flat=True)
+        request.user.groups.values_list(
+            "name",
+            flat=True,
+        )
     )
 
     for group_name, route_name in ROLE_ROUTES:
@@ -160,7 +190,9 @@ def dashboard_router(request):
 
 @login_required
 def role_dashboard(request, role_name):
-    has_role = request.user.groups.filter(name=role_name).exists()
+    has_role = request.user.groups.filter(
+        name=role_name
+    ).exists()
 
     if not request.user.is_superuser and not has_role:
         raise PermissionDenied(
@@ -209,8 +241,10 @@ def work_order_list(request):
             "status_choices": WorkOrder.Status.choices,
             "selected_status": selected_status,
             "selected_product": selected_product,
-            "can_create_work_orders": user_can_create_work_orders(
-                request.user
+            "can_create_work_orders": (
+                user_can_create_work_orders(
+                    request.user
+                )
             ),
         },
     )
@@ -223,10 +257,12 @@ def work_order_detail(request, pk):
         pk=pk,
     )
 
-    production_runs = work_order.production_runs.select_related(
-        "production_line__production_area__site",
-        "shift",
-    ).all()
+    production_runs = (
+        work_order.production_runs.select_related(
+            "production_line__production_area__site",
+            "shift",
+        ).all()
+    )
 
     return render(
         request,
@@ -234,11 +270,15 @@ def work_order_detail(request, pk):
         {
             "work_order": work_order,
             "production_runs": production_runs,
-            "can_create_work_orders": user_can_create_work_orders(
-                request.user
+            "can_create_work_orders": (
+                user_can_create_work_orders(
+                    request.user
+                )
             ),
-            "can_create_production_runs": user_can_create_production_runs(
-                request.user
+            "can_create_production_runs": (
+                user_can_create_production_runs(
+                    request.user
+                )
             ),
         },
     )
@@ -282,7 +322,10 @@ def production_run_list(request):
     ).all()
 
     selected_status = request.GET.get("status", "")
-    selected_work_order = request.GET.get("work_order", "")
+    selected_work_order = request.GET.get(
+        "work_order",
+        "",
+    )
     selected_production_line = request.GET.get(
         "production_line",
         "",
@@ -309,18 +352,26 @@ def production_run_list(request):
             shift_id=selected_shift
         )
 
-    work_orders = WorkOrder.objects.filter(
-        is_active=True
-    ).select_related("product").order_by("order_number")
+    work_orders = (
+        WorkOrder.objects.filter(
+            is_active=True
+        )
+        .select_related("product")
+        .order_by("order_number")
+    )
 
-    production_lines = ProductionLine.objects.filter(
-        is_active=True
-    ).select_related(
-        "production_area__site"
-    ).order_by(
-        "production_area__site__code",
-        "production_area__code",
-        "code",
+    production_lines = (
+        ProductionLine.objects.filter(
+            is_active=True
+        )
+        .select_related(
+            "production_area__site"
+        )
+        .order_by(
+            "production_area__site__code",
+            "production_area__code",
+            "code",
+        )
     )
 
     shifts = Shift.objects.filter(
@@ -338,7 +389,9 @@ def production_run_list(request):
             "status_choices": ProductionRun.Status.choices,
             "selected_status": selected_status,
             "selected_work_order": selected_work_order,
-            "selected_production_line": selected_production_line,
+            "selected_production_line": (
+                selected_production_line
+            ),
             "selected_shift": selected_shift,
         },
     )
@@ -373,6 +426,12 @@ def production_run_detail(request, pk):
         ended_at__isnull=True
     ).exists()
 
+    quality_inspections = (
+        production_run.quality_inspections.select_related(
+            "completed_by"
+        ).all()
+    )
+
     return render(
         request,
         "core/production_run_detail.html",
@@ -381,14 +440,21 @@ def production_run_detail(request, pk):
             "production_entries": production_entries,
             "downtime_events": downtime_events,
             "open_downtime_exists": open_downtime_exists,
-            "can_start_production_runs": user_can_start_production_runs(
-                request.user
+            "quality_inspections": quality_inspections,
+            "can_start_production_runs": (
+                user_can_start_production_runs(
+                    request.user
+                )
             ),
-            "can_pause_production_runs": user_can_pause_production_runs(
-                request.user
+            "can_pause_production_runs": (
+                user_can_pause_production_runs(
+                    request.user
+                )
             ),
-            "can_resume_production_runs": user_can_resume_production_runs(
-                request.user
+            "can_resume_production_runs": (
+                user_can_resume_production_runs(
+                    request.user
+                )
             ),
             "can_complete_production_runs": (
                 user_can_complete_production_runs(
@@ -410,13 +476,28 @@ def production_run_detail(request, pk):
                     request.user
                 )
             ),
+            "can_create_quality_inspections": (
+                user_can_create_quality_inspections(
+                    request.user
+                )
+            ),
+            "can_complete_quality_inspections": (
+                user_can_complete_quality_inspections(
+                    request.user
+                )
+            ),
         },
     )
 
 
 @login_required
-def production_run_create(request, work_order_pk):
-    if not user_can_create_production_runs(request.user):
+def production_run_create(
+    request,
+    work_order_pk,
+):
+    if not user_can_create_production_runs(
+        request.user
+    ):
         raise PermissionDenied(
             "You do not have permission to create Production Runs."
         )
@@ -452,10 +533,16 @@ def production_run_create(request, work_order_pk):
 
 
 @login_required
-def production_entry_create(request, production_run_pk):
-    if not user_can_create_production_entries(request.user):
+def production_entry_create(
+    request,
+    production_run_pk,
+):
+    if not user_can_create_production_entries(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to record Production Entries."
+            "You do not have permission to record "
+            "Production Entries."
         )
 
     production_run = get_object_or_404(
@@ -467,7 +554,10 @@ def production_entry_create(request, production_run_pk):
         pk=production_run_pk,
     )
 
-    if production_run.status != ProductionRun.Status.ACTIVE:
+    if (
+        production_run.status
+        != ProductionRun.Status.ACTIVE
+    ):
         raise PermissionDenied(
             "Production Entries may only be recorded "
             "against ACTIVE Production Runs."
@@ -477,9 +567,15 @@ def production_entry_create(request, production_run_pk):
         form = ProductionEntryForm(request.POST)
 
         if form.is_valid():
-            production_entry = form.save(commit=False)
-            production_entry.production_run = production_run
-            production_entry.recorded_by = request.user
+            production_entry = form.save(
+                commit=False
+            )
+            production_entry.production_run = (
+                production_run
+            )
+            production_entry.recorded_by = (
+                request.user
+            )
 
             production_entry.full_clean()
             production_entry.save()
@@ -502,10 +598,16 @@ def production_entry_create(request, production_run_pk):
 
 
 @login_required
-def downtime_event_create(request, production_run_pk):
-    if not user_can_manage_downtime_events(request.user):
+def downtime_event_create(
+    request,
+    production_run_pk,
+):
+    if not user_can_manage_downtime_events(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to open Downtime Events."
+            "You do not have permission to open "
+            "Downtime Events."
         )
 
     production_run = get_object_or_404(
@@ -517,28 +619,40 @@ def downtime_event_create(request, production_run_pk):
         pk=production_run_pk,
     )
 
-    if production_run.status != ProductionRun.Status.ACTIVE:
+    if (
+        production_run.status
+        != ProductionRun.Status.ACTIVE
+    ):
         raise PermissionDenied(
             "Downtime Events may only be opened against "
             "ACTIVE Production Runs."
         )
 
-    open_downtime_exists = production_run.downtime_events.filter(
-        ended_at__isnull=True
-    ).exists()
+    open_downtime_exists = (
+        production_run.downtime_events.filter(
+            ended_at__isnull=True
+        ).exists()
+    )
 
     if open_downtime_exists:
         raise PermissionDenied(
-            "This Production Run already has an open Downtime Event."
+            "This Production Run already has an open "
+            "Downtime Event."
         )
 
     if request.method == "POST":
         form = DowntimeEventForm(request.POST)
 
         if form.is_valid():
-            downtime_event = form.save(commit=False)
-            downtime_event.production_run = production_run
-            downtime_event.opened_by = request.user
+            downtime_event = form.save(
+                commit=False
+            )
+            downtime_event.production_run = (
+                production_run
+            )
+            downtime_event.opened_by = (
+                request.user
+            )
             downtime_event.ended_at = None
             downtime_event.closed_by = None
 
@@ -564,9 +678,12 @@ def downtime_event_create(request, production_run_pk):
 
 @login_required
 def downtime_event_close(request, pk):
-    if not user_can_manage_downtime_events(request.user):
+    if not user_can_manage_downtime_events(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to close Downtime Events."
+            "You do not have permission to close "
+            "Downtime Events."
         )
 
     downtime_event = get_object_or_404(
@@ -608,10 +725,160 @@ def downtime_event_close(request, pk):
 
 
 @login_required
-def production_run_start(request, pk):
-    if not user_can_start_production_runs(request.user):
+def quality_inspection_create(
+    request,
+    production_run_pk,
+):
+    if not user_can_create_quality_inspections(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to start Production Runs."
+            "You do not have permission to create "
+            "Quality Inspections."
+        )
+
+    production_run = get_object_or_404(
+        ProductionRun.objects.select_related(
+            "work_order__product",
+            "production_line__production_area__site",
+            "shift",
+        ),
+        pk=production_run_pk,
+    )
+
+    if request.method == "POST":
+        form = QualityInspectionCreateForm(
+            request.POST
+        )
+
+        if form.is_valid():
+            quality_inspection = form.save(
+                commit=False
+            )
+            quality_inspection.production_run = (
+                production_run
+            )
+            quality_inspection.result = (
+                QualityInspection.Result.PENDING
+            )
+            quality_inspection.completed_by = None
+            quality_inspection.completed_at = None
+
+            quality_inspection.full_clean()
+            quality_inspection.save()
+
+            return redirect(
+                "production-run-detail",
+                pk=production_run.pk,
+            )
+    else:
+        form = QualityInspectionCreateForm()
+
+    return render(
+        request,
+        "core/quality_inspection_form.html",
+        {
+            "form": form,
+            "production_run": production_run,
+        },
+    )
+
+
+@login_required
+def quality_inspection_complete(request, pk):
+    if not user_can_complete_quality_inspections(
+        request.user
+    ):
+        raise PermissionDenied(
+            "You do not have permission to complete "
+            "Quality Inspections."
+        )
+
+    quality_inspection = get_object_or_404(
+        QualityInspection.objects.select_related(
+            "production_run__work_order__product",
+            "production_run__production_line"
+            "__production_area__site",
+            "production_run__shift",
+            "completed_by",
+        ),
+        pk=pk,
+    )
+
+    if request.method != "POST":
+        raise PermissionDenied(
+            "Quality Inspections may only be completed "
+            "using POST."
+        )
+
+    if (
+        quality_inspection.result
+        != QualityInspection.Result.PENDING
+    ):
+        raise PermissionDenied(
+            "Only PENDING Quality Inspections "
+            "may be completed."
+        )
+
+    if "result" not in request.POST:
+        form = QualityInspectionCompleteForm(
+            instance=quality_inspection
+        )
+
+        return render(
+            request,
+            "core/quality_inspection_complete_form.html",
+            {
+                "form": form,
+                "quality_inspection": quality_inspection,
+                "production_run": (
+                    quality_inspection.production_run
+                ),
+            },
+        )
+
+    quality_inspection.completed_by = request.user
+    quality_inspection.completed_at = timezone.now()
+
+    form = QualityInspectionCompleteForm(
+        request.POST,
+        instance=quality_inspection,
+    )
+
+    if form.is_valid():
+        completed_inspection = form.save(
+            commit=False
+        )
+
+        completed_inspection.full_clean()
+        completed_inspection.save()
+
+        return redirect(
+            "production-run-detail",
+            pk=completed_inspection.production_run.pk,
+        )
+
+    return render(
+        request,
+        "core/quality_inspection_complete_form.html",
+        {
+            "form": form,
+            "quality_inspection": quality_inspection,
+            "production_run": (
+                quality_inspection.production_run
+            ),
+        },
+    )
+
+
+@login_required
+def production_run_start(request, pk):
+    if not user_can_start_production_runs(
+        request.user
+    ):
+        raise PermissionDenied(
+            "You do not have permission to start "
+            "Production Runs."
         )
 
     production_run = get_object_or_404(
@@ -624,7 +891,10 @@ def production_run_start(request, pk):
             "Production Runs may only be started using POST."
         )
 
-    if production_run.status != ProductionRun.Status.PLANNED:
+    if (
+        production_run.status
+        != ProductionRun.Status.PLANNED
+    ):
         raise PermissionDenied(
             "Only PLANNED Production Runs may be started."
         )
@@ -640,10 +910,13 @@ def production_run_start(request, pk):
 
     if active_run_exists:
         raise PermissionDenied(
-            "This Work Order already has an ACTIVE Production Run."
+            "This Work Order already has an ACTIVE "
+            "Production Run."
         )
 
-    production_run.status = ProductionRun.Status.ACTIVE
+    production_run.status = (
+        ProductionRun.Status.ACTIVE
+    )
     production_run.started_at = timezone.now()
     production_run.ended_at = None
 
@@ -665,9 +938,12 @@ def production_run_start(request, pk):
 
 @login_required
 def production_run_pause(request, pk):
-    if not user_can_pause_production_runs(request.user):
+    if not user_can_pause_production_runs(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to pause Production Runs."
+            "You do not have permission to pause "
+            "Production Runs."
         )
 
     production_run = get_object_or_404(
@@ -680,12 +956,17 @@ def production_run_pause(request, pk):
             "Production Runs may only be paused using POST."
         )
 
-    if production_run.status != ProductionRun.Status.ACTIVE:
+    if (
+        production_run.status
+        != ProductionRun.Status.ACTIVE
+    ):
         raise PermissionDenied(
             "Only ACTIVE Production Runs may be paused."
         )
 
-    production_run.status = ProductionRun.Status.PAUSED
+    production_run.status = (
+        ProductionRun.Status.PAUSED
+    )
 
     production_run.full_clean()
     production_run.save(
@@ -703,9 +984,12 @@ def production_run_pause(request, pk):
 
 @login_required
 def production_run_resume(request, pk):
-    if not user_can_resume_production_runs(request.user):
+    if not user_can_resume_production_runs(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to resume Production Runs."
+            "You do not have permission to resume "
+            "Production Runs."
         )
 
     production_run = get_object_or_404(
@@ -718,7 +1002,10 @@ def production_run_resume(request, pk):
             "Production Runs may only be resumed using POST."
         )
 
-    if production_run.status != ProductionRun.Status.PAUSED:
+    if (
+        production_run.status
+        != ProductionRun.Status.PAUSED
+    ):
         raise PermissionDenied(
             "Only PAUSED Production Runs may be resumed."
         )
@@ -734,10 +1021,13 @@ def production_run_resume(request, pk):
 
     if active_run_exists:
         raise PermissionDenied(
-            "This Work Order already has an ACTIVE Production Run."
+            "This Work Order already has an ACTIVE "
+            "Production Run."
         )
 
-    production_run.status = ProductionRun.Status.ACTIVE
+    production_run.status = (
+        ProductionRun.Status.ACTIVE
+    )
 
     production_run.full_clean()
     production_run.save(
@@ -755,9 +1045,12 @@ def production_run_resume(request, pk):
 
 @login_required
 def production_run_complete(request, pk):
-    if not user_can_complete_production_runs(request.user):
+    if not user_can_complete_production_runs(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to complete Production Runs."
+            "You do not have permission to complete "
+            "Production Runs."
         )
 
     production_run = get_object_or_404(
@@ -770,12 +1063,17 @@ def production_run_complete(request, pk):
             "Production Runs may only be completed using POST."
         )
 
-    if production_run.status != ProductionRun.Status.ACTIVE:
+    if (
+        production_run.status
+        != ProductionRun.Status.ACTIVE
+    ):
         raise PermissionDenied(
             "Only ACTIVE Production Runs may be completed."
         )
 
-    production_run.status = ProductionRun.Status.COMPLETED
+    production_run.status = (
+        ProductionRun.Status.COMPLETED
+    )
     production_run.ended_at = timezone.now()
 
     production_run.full_clean()
@@ -795,9 +1093,12 @@ def production_run_complete(request, pk):
 
 @login_required
 def production_run_cancel(request, pk):
-    if not user_can_cancel_production_runs(request.user):
+    if not user_can_cancel_production_runs(
+        request.user
+    ):
         raise PermissionDenied(
-            "You do not have permission to cancel Production Runs."
+            "You do not have permission to cancel "
+            "Production Runs."
         )
 
     production_run = get_object_or_404(
@@ -822,7 +1123,9 @@ def production_run_cancel(request, pk):
 
     previous_status = production_run.status
 
-    production_run.status = ProductionRun.Status.CANCELLED
+    production_run.status = (
+        ProductionRun.Status.CANCELLED
+    )
 
     if previous_status in [
         ProductionRun.Status.ACTIVE,
@@ -832,7 +1135,10 @@ def production_run_cancel(request, pk):
 
     production_run.full_clean()
 
-    if previous_status == ProductionRun.Status.PLANNED:
+    if (
+        previous_status
+        == ProductionRun.Status.PLANNED
+    ):
         production_run.save(
             update_fields=[
                 "status",

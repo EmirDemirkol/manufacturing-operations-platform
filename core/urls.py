@@ -107,6 +107,16 @@ urlpatterns = [
         name="downtime-event-close",
     ),
     path(
+        "production-runs/<int:production_run_pk>/quality-inspections/new/",
+        views.quality_inspection_create,
+        name="quality-inspection-create",
+    ),
+    path(
+        "quality-inspections/<int:pk>/complete/",
+        views.quality_inspection_complete,
+        name="quality-inspection-complete",
+    ),
+    path(
         "work-orders/<int:work_order_pk>/production-runs/new/",
         views.production_run_create,
         name="production-run-create",
