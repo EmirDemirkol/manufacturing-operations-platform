@@ -6,6 +6,11 @@ from . import views
 urlpatterns = [
     path("", views.dashboard_router, name="dashboard-router"),
     path(
+        "dashboard-summary/",
+        views.dashboard_summary,
+        name="dashboard-summary",
+    ),
+    path(
         "operator/",
         views.role_dashboard,
         {"role_name": "Operator"},

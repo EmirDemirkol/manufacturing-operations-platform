@@ -210,6 +210,77 @@ def role_dashboard(request, role_name):
 
 
 @login_required
+def dashboard_summary(request):
+    recent_production_entries = (
+        ProductionEntry.objects.select_related(
+            "production_run__work_order",
+            "recorded_by",
+        )
+        .order_by("-recorded_at", "-id")[:5]
+    )
+
+    recent_downtime_events = (
+        DowntimeEvent.objects.select_related(
+            "production_run__work_order",
+            "downtime_reason",
+            "opened_by",
+            "closed_by",
+        )
+        .order_by("-started_at", "-id")[:5]
+    )
+
+    recent_quality_inspections = (
+        QualityInspection.objects.select_related(
+            "production_run__work_order",
+            "completed_by",
+        )
+        .order_by("-created_at", "-id")[:5]
+    )
+
+    context = {
+        "active_production_run_count": (
+            ProductionRun.objects.filter(
+                status=ProductionRun.Status.ACTIVE,
+            ).count()
+        ),
+        "paused_production_run_count": (
+            ProductionRun.objects.filter(
+                status=ProductionRun.Status.PAUSED,
+            ).count()
+        ),
+        "completed_production_run_count": (
+            ProductionRun.objects.filter(
+                status=ProductionRun.Status.COMPLETED,
+            ).count()
+        ),
+        "cancelled_production_run_count": (
+            ProductionRun.objects.filter(
+                status=ProductionRun.Status.CANCELLED,
+            ).count()
+        ),
+        "open_downtime_event_count": (
+            DowntimeEvent.objects.filter(
+                ended_at__isnull=True,
+            ).count()
+        ),
+        "pending_quality_inspection_count": (
+            QualityInspection.objects.filter(
+                result=QualityInspection.Result.PENDING,
+            ).count()
+        ),
+        "recent_production_entries": recent_production_entries,
+        "recent_downtime_events": recent_downtime_events,
+        "recent_quality_inspections": recent_quality_inspections,
+    }
+
+    return render(
+        request,
+        "core/dashboard_summary.html",
+        context,
+    )
+
+
+@login_required
 def work_order_list(request):
     work_orders = WorkOrder.objects.select_related(
         "product"
@@ -797,8 +868,7 @@ def quality_inspection_complete(request, pk):
     quality_inspection = get_object_or_404(
         QualityInspection.objects.select_related(
             "production_run__work_order__product",
-            "production_run__production_line"
-            "__production_area__site",
+            "production_run__production_line__production_area__site",
             "production_run__shift",
             "completed_by",
         ),
