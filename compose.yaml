@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: forgeops_dev
+      POSTGRES_USER: forgeops_user
+      POSTGRES_PASSWORD: forgeops_docker_password
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgeops_user -d forgeops_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SECRET_KEY: forgeops-docker-development-secret-key
+      DB_NAME: forgeops_dev
+      DB_USER: forgeops_user
+      DB_PASSWORD: forgeops_docker_password
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

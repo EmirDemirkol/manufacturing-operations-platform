@@ -8890,3 +8890,489 @@ FO-023 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 30. FO-024 Current State
+
+FO-024 containerises the existing ForgeOps Django application and PostgreSQL development database using Docker and Docker Compose.
+
+FO-024 is an infrastructure issue.
+
+It does not modify existing manufacturing workflows, permissions, lifecycle behaviour, business rules or database constraints.
+
+## Docker Architecture
+
+The Docker development environment contains two Compose services:
+
+```text
+web
+db
+```
+
+The `web` service runs the existing ForgeOps Django application.
+
+The `db` service runs PostgreSQL 18.
+
+The services communicate through the default Docker Compose network.
+
+Django connects to PostgreSQL using:
+
+```text
+DB_HOST=db
+DB_PORT=5432
+```
+
+The `db` hostname is the Docker Compose service name.
+
+## Dockerfile
+
+FO-024 adds:
+
+```text
+Dockerfile
+```
+
+The Docker image uses:
+
+```text
+python:3.12-slim
+```
+
+The image:
+
+- sets `/app` as the working directory
+- installs dependencies from `requirements.txt`
+- copies the ForgeOps repository into the image
+- exposes port `8000`
+- runs the Django development server on `0.0.0.0:8000`
+
+The containerised environment remains a development environment.
+
+FO-024 does not introduce Gunicorn, Nginx or production deployment infrastructure.
+
+## Docker Ignore Configuration
+
+FO-024 adds:
+
+```text
+.dockerignore
+```
+
+The Docker build context excludes development and sensitive files including:
+
+```text
+.git
+.venv
+.env
+__pycache__
+db.sqlite3
+```
+
+The real local `.env` file is not copied into the Docker image.
+
+## Docker Compose Configuration
+
+FO-024 adds:
+
+```text
+compose.yaml
+```
+
+The Compose configuration defines:
+
+```text
+web
+db
+```
+
+The PostgreSQL service uses:
+
+```text
+postgres:18
+```
+
+The Django service is built from the ForgeOps `Dockerfile`.
+
+The Django development server is exposed on:
+
+```text
+localhost:8000
+```
+
+The Docker PostgreSQL database uses the synthetic development configuration:
+
+```text
+database: forgeops_dev
+user: forgeops_user
+host: db
+port: 5432
+```
+
+Docker-specific development credentials are not real employer or production credentials.
+
+## PostgreSQL Health Check
+
+The PostgreSQL service uses:
+
+```text
+pg_isready
+```
+
+as its health check.
+
+The Django service depends on PostgreSQL reaching:
+
+```text
+service_healthy
+```
+
+before Django starts.
+
+This avoids starting the web application before the database is ready to accept connections.
+
+## PostgreSQL Persistence
+
+The PostgreSQL service uses the named Docker volume:
+
+```text
+postgres_data
+```
+
+The Compose project creates the volume as:
+
+```text
+manufacturing-operations-platform_postgres_data
+```
+
+Normal:
+
+```bash
+docker compose down
+```
+
+removes the running containers and Compose network but preserves PostgreSQL data stored in the named volume.
+
+The volume persistence behaviour was manually verified.
+
+After:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+the synthetic `supervisor_demo` user remained present in the Docker PostgreSQL database.
+
+The user was verified using Django:
+
+```text
+True
+```
+
+FO-024 does not require destroying the volume during normal development.
+
+The command:
+
+```bash
+docker compose down -v
+```
+
+removes the named volume and is therefore intentionally destructive to Docker development database data.
+
+## Database Separation
+
+The Docker PostgreSQL database is separate from the existing host PostgreSQL development database.
+
+Existing host PostgreSQL records are not automatically copied into Docker.
+
+The Docker database begins as a fresh PostgreSQL environment until ForgeOps migrations and synthetic demonstration data are applied.
+
+FO-024 does not copy real manufacturing, employer or customer data into Docker.
+
+## Migration Application
+
+A new Docker PostgreSQL database initially reported 26 unapplied Django migrations.
+
+The existing migration history was applied using:
+
+```bash
+docker compose exec web python manage.py migrate
+```
+
+All migrations applied successfully.
+
+The Core migration sequence remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+FO-024 introduces no new Django migration.
+
+## Docker Build Verification
+
+The Django image was successfully built using:
+
+```bash
+docker compose build
+```
+
+Verified result:
+
+```text
+Image manufacturing-operations-platform-web Built
+```
+
+## Docker Startup Verification
+
+The environment was successfully started using:
+
+```bash
+docker compose up
+```
+
+PostgreSQL reached:
+
+```text
+Healthy
+```
+
+Django reported:
+
+```text
+System check identified no issues (0 silenced).
+```
+
+and started the development server at:
+
+```text
+http://0.0.0.0:8000/
+```
+
+The detached environment was also successfully started using:
+
+```bash
+docker compose up -d
+```
+
+## Docker Service Verification
+
+The running Compose services were verified using:
+
+```bash
+docker compose ps
+```
+
+Verified state:
+
+```text
+db  -> Up (healthy)
+web -> Up
+```
+
+The Django service exposes:
+
+```text
+0.0.0.0:8000->8000/tcp
+```
+
+## Automated Test Verification
+
+The complete Core automated test suite was executed inside the Docker Django container using:
+
+```bash
+docker compose exec web python manage.py test core -v 2
+```
+
+Verified result:
+
+```text
+Ran 330 tests in 19.179s
+
+OK
+```
+
+The Docker environment therefore preserves the existing FO-023 Core regression baseline.
+
+## Django System Verification
+
+Django system checks were executed inside the Docker container using:
+
+```bash
+docker compose exec web python manage.py check
+```
+
+Verified result:
+
+```text
+System check identified no issues (0 silenced).
+```
+
+## Migration Drift Verification
+
+Migration drift was checked inside the Docker container using:
+
+```bash
+docker compose exec web python manage.py makemigrations --check --dry-run
+```
+
+Verified result:
+
+```text
+No changes detected
+```
+
+FO-024 does not require a schema migration.
+
+## Browser Verification
+
+The containerised ForgeOps application was manually verified at:
+
+```text
+http://127.0.0.1:8000/
+```
+
+The ForgeOps login page loaded successfully.
+
+Synthetic demonstration users were created inside the Docker database using:
+
+```bash
+docker compose exec web python manage.py seed_demo_users
+```
+
+The synthetic Production Supervisor account:
+
+```text
+supervisor_demo
+```
+
+successfully authenticated.
+
+ForgeOps correctly routed the account to the Production Supervisor dashboard.
+
+The dashboard loaded successfully against Docker PostgreSQL.
+
+## README Documentation
+
+FO-024 updates:
+
+```text
+README.md
+```
+
+to document:
+
+- local development setup
+- Docker requirements
+- Docker image build
+- Docker Compose startup
+- migrations
+- Django system checks
+- migration drift checks
+- Core automated tests
+- synthetic demonstration users
+- Docker shutdown
+- PostgreSQL volume persistence
+- the destructive effect of `docker compose down -v`
+
+The pre-existing malformed Markdown code fences in the local development and demonstration-user sections were also corrected.
+
+## FO-024 Files Added
+
+```text
+Dockerfile
+.dockerignore
+compose.yaml
+```
+
+## FO-024 Files Updated
+
+```text
+README.md
+docs/database-design.md
+```
+
+No production manufacturing application file is modified.
+
+No Core model file is modified.
+
+No migration file is added.
+
+## FO-024 Acceptance Criteria Verified
+
+- Docker Desktop is installed and operational
+- Docker CLI is operational
+- Docker Compose is operational
+- Docker Compose configuration validates successfully
+- Django has a reproducible Docker image
+- PostgreSQL 18 runs as a Docker Compose service
+- Django runs as a Docker Compose service
+- PostgreSQL has a health check
+- Django waits for PostgreSQL health before startup
+- Django connects to PostgreSQL using the Compose service hostname
+- Docker PostgreSQL uses a named persistent volume
+- the Django image builds successfully
+- the PostgreSQL container starts successfully
+- PostgreSQL reaches healthy status
+- the Django container starts successfully
+- existing migrations apply successfully to a fresh Docker PostgreSQL database
+- no new migration is introduced
+- all 330 Core automated tests pass inside Docker
+- Django system checks pass inside Docker
+- migration drift validation passes inside Docker
+- ForgeOps is reachable at `http://127.0.0.1:8000/`
+- the ForgeOps login page renders successfully
+- synthetic demonstration users can be created inside Docker
+- `supervisor_demo` authenticates successfully
+- Production Supervisor role routing works inside Docker
+- PostgreSQL data persists across normal `docker compose down` and `docker compose up`
+- real host PostgreSQL records are not required by the Docker environment
+- the real local `.env` is excluded from the Docker build context
+- Docker-specific demonstration credentials are synthetic development values
+- README Docker instructions reflect commands actually verified during FO-024
+- all test and demonstration data remains synthetic
+
+## FO-024 Out of Scope
+
+FO-024 does not implement:
+
+- GitHub Actions
+- CI/CD
+- production deployment
+- Gunicorn
+- Nginx
+- Kubernetes
+- Redis
+- Celery
+- Prometheus
+- Grafana
+- REST API functionality
+- MES integration
+- SAP integration
+- OPC UA integration
+- machine integration
+- automatic AuditEvent generation
+- new AuditEvent behaviour
+- new WorkOrder behaviour
+- new ProductionRun lifecycle behaviour
+- new ProductionEntry behaviour
+- new DowntimeEvent behaviour
+- new QualityInspection behaviour
+- new dashboard analytics
+- new roles
+- new permissions
+- database schema redesign
+- database migrations
+- real manufacturing data
+- employer data
+- customer data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
