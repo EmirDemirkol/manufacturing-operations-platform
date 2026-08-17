@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: forgeops_ci
+          POSTGRES_USER: forgeops_user
+          POSTGRES_PASSWORD: forgeops_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U forgeops_user -d forgeops_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SECRET_KEY: forgeops-ci-secret-key
+      DB_NAME: forgeops_ci
+      DB_USER: forgeops_user
+      DB_PASSWORD: forgeops_ci_password
+      DB_HOST: localhost
+      DB_PORT: "5432"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Apply migrations
+        run: python manage.py migrate
+
+      - name: Run Django system checks
+        run: python manage.py check
+
+      - name: Check migration drift
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run Core test suite
+        run: python manage.py test core -v 2
