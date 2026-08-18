@@ -207,3 +207,51 @@ All demonstration and test data must remain synthetic.
 ```
 
 Users cannot access dashboards belonging to other roles
+
+## Continuous Integration
+
+ForgeOps uses GitHub Actions to automatically verify the application on:
+
+```text
+push
+pull_request
+```
+
+The CI workflow is defined in:
+
+```text
+.github/workflows/ci.yml
+```
+
+The workflow uses:
+
+- Ubuntu GitHub Actions runner
+- Python 3.12
+- PostgreSQL 18
+- synthetic CI-only database credentials
+
+The workflow automatically runs:
+
+```bash
+python manage.py migrate
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test core -v 2
+```
+
+The verified FO-025 GitHub Actions regression result is:
+
+```text
+Ran 330 tests in 46.296s
+OK
+```
+
+The CI test database is isolated as:
+
+```text
+test_forgeops_ci
+```
+
+A failed required verification step causes the GitHub Actions workflow to fail.
+
+No local `.env`, real manufacturing data, employer data, or production credentials are required by CI.
