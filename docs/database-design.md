@@ -9376,3 +9376,397 @@ FO-024 does not implement:
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
 All test and demonstration data must remain synthetic.
+
+# 31. FO-025 Current State
+
+FO-025 adds GitHub Actions continuous integration to ForgeOps.
+
+The workflow automatically verifies the existing Django and PostgreSQL application when code is pushed or when a pull request is created or updated.
+
+FO-025 is an infrastructure and repository-verification issue.
+
+It does not modify existing manufacturing workflows, permissions, lifecycle behaviour, business rules or database constraints.
+
+## GitHub Actions Workflow
+
+FO-025 adds:
+
+```text
+.github/workflows/ci.yml
+```
+
+The workflow is named:
+
+```text
+CI
+```
+
+The workflow runs on:
+
+```text
+push
+pull_request
+```
+
+## CI Environment
+
+The GitHub Actions job runs on:
+
+```text
+ubuntu-latest
+```
+
+Python is configured using:
+
+```text
+actions/setup-python@v6
+```
+
+with:
+
+```text
+Python 3.12
+```
+
+Repository checkout uses:
+
+```text
+actions/checkout@v5
+```
+
+The initial workflow used `actions/checkout@v4`.
+
+The first successful GitHub Actions run produced a Node.js 20 deprecation warning from `actions/checkout@v4`.
+
+The checkout action was therefore updated to `actions/checkout@v5`.
+
+The subsequent GitHub Actions run completed successfully without that warning.
+
+## PostgreSQL CI Service
+
+The workflow provides PostgreSQL through a GitHub Actions service container.
+
+The PostgreSQL image is:
+
+```text
+postgres:18
+```
+
+The isolated CI database configuration is:
+
+```text
+database: forgeops_ci
+user: forgeops_user
+host: localhost
+port: 5432
+```
+
+The workflow uses synthetic CI-only credentials.
+
+No local development password, employer credential, production credential or real manufacturing information is used.
+
+## PostgreSQL Health Check
+
+The PostgreSQL service uses:
+
+```text
+pg_isready
+```
+
+to verify database availability.
+
+The configured health check verifies:
+
+```text
+forgeops_ci
+```
+
+using:
+
+```text
+forgeops_user
+```
+
+before the CI job continues.
+
+## CI Environment Variables
+
+The workflow provides the existing ForgeOps environment variables:
+
+```text
+DJANGO_SECRET_KEY
+DB_NAME
+DB_USER
+DB_PASSWORD
+DB_HOST
+DB_PORT
+```
+
+The existing Django database configuration remains unchanged.
+
+FO-025 does not introduce:
+
+```text
+DATABASE_URL
+dj-database-url
+```
+
+or a second database configuration system.
+
+## Dependency Installation
+
+The workflow installs the existing pinned dependencies using:
+
+```bash
+pip install -r requirements.txt
+```
+
+FO-025 does not introduce a separate CI dependency file.
+
+## Migration Application
+
+The workflow applies the existing Django migrations using:
+
+```bash
+python manage.py migrate
+```
+
+The existing Core migration sequence remains:
+
+```text
+0001_create_user_groups
+0002_create_manufacturing_hierarchy
+0003_create_operational_reference_models
+0004_create_work_orders_production_runs
+0005_create_production_entries
+0006_downtimeevent
+0007_qualityinspection
+0008_auditevent
+```
+
+FO-025 introduces no new Django migration.
+
+## Django System Check
+
+The workflow executes:
+
+```bash
+python manage.py check
+```
+
+The verified GitHub Actions result includes:
+
+```text
+System check identified no issues (0 silenced).
+```
+
+## Migration Drift Verification
+
+The workflow executes:
+
+```bash
+python manage.py makemigrations --check --dry-run
+```
+
+This causes CI to fail if model changes exist without the required migration files.
+
+FO-025 introduces no migration drift.
+
+## Automated Test Verification
+
+The workflow executes the complete Core automated test suite using:
+
+```bash
+python manage.py test core -v 2
+```
+
+The authoritative GitHub Actions FO-025 regression result is:
+
+```text
+Ran 330 tests in 46.296s
+
+OK
+```
+
+The CI test database was:
+
+```text
+test_forgeops_ci
+```
+
+The test database was destroyed automatically after the successful run.
+
+The existing FO-023 and FO-024 regression baseline therefore remains preserved under GitHub Actions.
+
+## GitHub Actions Verification
+
+The first real GitHub Actions workflow run was triggered by a push to:
+
+```text
+feature/fo-025-github-actions
+```
+
+The workflow completed successfully.
+
+The first run used:
+
+```text
+actions/checkout@v4
+```
+
+and produced a Node.js runtime deprecation warning.
+
+The checkout action was then upgraded to:
+
+```text
+actions/checkout@v5
+```
+
+The second GitHub Actions workflow run was triggered by commit:
+
+```text
+bf81763
+```
+
+The second run completed successfully.
+
+Verified result:
+
+```text
+Status: Success
+Workflow: CI
+Run: #2
+Job: test
+Duration: approximately 1 minute 31 seconds
+```
+
+The updated workflow completed without the previous Node.js 20 deprecation warning.
+
+## Failure Behaviour
+
+GitHub Actions will report a failed workflow when a required command returns a failure.
+
+Required verification includes:
+
+```text
+dependency installation
+database availability
+migration application
+Django system checks
+migration drift validation
+Core automated tests
+```
+
+FO-025 does not suppress or ignore failures from these required steps.
+
+## Authentication Note
+
+Pushing `.github/workflows/ci.yml` initially failed because the existing GitHub fine-grained personal access token did not have permission to update GitHub Actions workflow files.
+
+The repository-scoped token was updated to use:
+
+```text
+Contents: Read and write
+Metadata: Read-only
+Workflows: Read and write
+```
+
+for:
+
+```text
+EmirDemirkol/manufacturing-operations-platform
+```
+
+No broad all-repository token access was required.
+
+This authentication change is local GitHub account configuration and does not add credentials to the ForgeOps repository.
+
+## FO-025 Files Added
+
+```text
+.github/workflows/ci.yml
+```
+
+## FO-025 Files Updated
+
+```text
+docs/database-design.md
+```
+
+Additional README documentation may be updated to describe continuous integration.
+
+No production manufacturing application file is modified.
+
+No Core model file is modified.
+
+No migration file is added.
+
+## FO-025 Acceptance Criteria Verified
+
+- a GitHub Actions workflow exists under `.github/workflows/`
+- the workflow is named `CI`
+- the workflow runs on pushes
+- the workflow runs on pull requests
+- the workflow uses Python 3.12
+- the workflow uses PostgreSQL 18
+- PostgreSQL runs as an isolated CI service
+- PostgreSQL health checking is configured
+- existing environment-variable names are preserved
+- dependencies install from `requirements.txt`
+- existing migrations are applied
+- Django system checks run in CI
+- migration drift validation runs in CI
+- the complete Core automated test suite runs in CI
+- the GitHub Actions regression result is 330 tests passing
+- the CI test database is isolated as `test_forgeops_ci`
+- required command failures cause the workflow to fail
+- no real secrets are committed
+- no real manufacturing or employer data is used
+- `actions/checkout@v5` is used
+- the final verified GitHub Actions run completes successfully
+- the previous Node.js 20 checkout warning is removed
+- no new Django migration is introduced
+- existing manufacturing behaviour remains unchanged
+- all test and demonstration data remains synthetic
+
+## FO-025 Out of Scope
+
+FO-025 does not implement:
+
+- continuous deployment
+- production deployment
+- Docker image publishing
+- container registry publishing
+- GitHub Releases
+- release automation
+- Gunicorn
+- Nginx
+- Kubernetes
+- Redis
+- Celery
+- Prometheus
+- Grafana
+- cloud infrastructure
+- REST API functionality
+- MES integration
+- SAP integration
+- OPC UA integration
+- machine integration
+- automatic AuditEvent generation
+- new AuditEvent behaviour
+- new WorkOrder behaviour
+- new ProductionRun lifecycle behaviour
+- new ProductionEntry behaviour
+- new DowntimeEvent behaviour
+- new QualityInspection behaviour
+- new dashboard analytics
+- new roles
+- new permissions
+- database redesign
+- real manufacturing data
+- employer data
+- customer data
+
+These behaviours remain reserved for future roadmap issues that explicitly define them.
+
+All test and demonstration data must remain synthetic.
