@@ -1,10 +1,42 @@
 # ForgeOps Manufacturing Operations Platform
 
-ForgeOps is an educational manufacturing operations platform for production tracking, downtime analysis, quality inspections and operational intelligence.
+ForgeOps is an educational manufacturing operations platform for production tracking, downtime analysis, quality inspections, and operational intelligence.
 
-It is a Django and PostgreSQL portfolio project designed to demonstrate manufacturing-domain modelling, role-based operational workflows, data integrity, automated testing, containerised development and continuous integration.
+It is a Django and PostgreSQL portfolio project designed to demonstrate manufacturing-domain modelling, role-based operational workflows, data integrity, automated testing, containerised development, continuous integration, and cloud deployment.
 
-> **Educational project:** ForgeOps is not a validated production MES and does not process real manufacturing data. All test, screenshot and demonstration data must remain synthetic.
+> **Educational project:** ForgeOps is not a validated production MES and does not process real manufacturing data. All test, screenshot, and demonstration data must remain synthetic.
+
+## Live Deployment
+
+ForgeOps is deployed publicly on Railway:
+
+```text
+https://manufacturing-operations-platform-production.up.railway.app
+```
+
+The deployed environment uses:
+
+```text
+Railway
+Gunicorn
+PostgreSQL
+WhiteNoise
+HTTPS
+```
+
+The deployment has been verified with:
+
+```text
+Production Supervisor authentication
+Work Order visibility
+Production Run visibility
+Production Run detail
+Quality Specialist workflows
+System Administrator AuditEvent visibility
+synthetic PostgreSQL demonstration data
+```
+
+All deployed demonstration data is synthetic.
 
 ## Overview
 
@@ -37,7 +69,7 @@ The ForgeOps MVP currently includes:
 - Product reference data
 - Work Order creation
 - Production Run creation
-- Production Run start, pause, resume, completion and cancellation workflows
+- Production Run start, pause, resume, completion, and cancellation workflows
 - transactional production quantity recording
 - good and rejected quantity tracking
 - downtime reason configuration
@@ -46,7 +78,7 @@ The ForgeOps MVP currently includes:
 - passed and failed inspection results
 - role-specific dashboards
 - operational summary metrics
-- AuditEvent model and read-only audit-history visibility
+- `AuditEvent` model and read-only audit-history visibility
 - Django authentication
 - Django Group-based role permissions
 - PostgreSQL database constraints
@@ -54,6 +86,7 @@ The ForgeOps MVP currently includes:
 - automated regression testing
 - GitHub Actions continuous integration
 - deterministic synthetic MVP demonstration data
+- Railway cloud deployment
 
 ## Technology Stack
 
@@ -65,8 +98,11 @@ The ForgeOps MVP currently includes:
 | Frontend | Django Templates, HTML, CSS |
 | Authentication | Django Authentication |
 | Authorisation | Django Groups and server-side permission checks |
+| Application Server | Gunicorn |
+| Static Files | WhiteNoise |
 | Containers | Docker and Docker Compose |
 | Continuous Integration | GitHub Actions |
+| Deployment | Railway |
 | Source Control | Git and GitHub |
 
 ## Architecture
@@ -182,7 +218,7 @@ The current roles are:
 | Role | Primary MVP Responsibility |
 | --- | --- |
 | Operator | Operational production entry and permitted downtime workflows |
-| Production Supervisor | Work Orders, Production Runs and lifecycle management |
+| Production Supervisor | Work Orders, Production Runs, and lifecycle management |
 | Quality Specialist | Quality Inspection workflows |
 | Manufacturing Engineer | Engineering-oriented operational visibility |
 | Operations Manager | Management dashboard visibility |
@@ -208,7 +244,7 @@ For Docker:
 docker compose exec web python manage.py seed_demo_users
 ```
 
-The command securely asks for one password and creates:
+The command securely asks for one password and creates or updates:
 
 | Username | Role |
 | --- | --- |
@@ -305,7 +341,7 @@ Quality results remain visible as historical operational records.
 
 ForgeOps contains an `AuditEvent` model and controlled read-only website visibility for authorised users.
 
-AuditEvent stores:
+`AuditEvent` stores:
 
 ```text
 user
@@ -316,7 +352,7 @@ description
 created_at
 ```
 
-Automatic AuditEvent generation across all operational workflows is **not currently implemented globally**.
+Automatic `AuditEvent` generation across all operational workflows is **not currently implemented globally**.
 
 ForgeOps therefore does not claim to provide a complete automatic regulatory audit trail.
 
@@ -692,10 +728,10 @@ python manage.py makemigrations --check --dry-run
 python manage.py test core -v 2
 ```
 
-The verified FO-025 GitHub Actions regression result was:
+The verified GitHub Actions regression result is:
 
 ```text
-Ran 330 tests in 46.296s
+Ran 330 tests
 OK
 ```
 
@@ -713,7 +749,70 @@ test_forgeops_ci
 
 A failing required verification command causes the workflow to fail.
 
-No local `.env`, real manufacturing data, employer data or production credentials are required by CI.
+No local `.env`, real manufacturing data, employer data, or production credentials are required by CI.
+
+## Railway Deployment
+
+The ForgeOps MVP is deployed using Railway.
+
+The deployment contains:
+
+```text
+ForgeOps Django service
+PostgreSQL service
+```
+
+Production startup uses:
+
+```text
+Pre-deploy:
+python manage.py migrate
+```
+
+and:
+
+```text
+Start:
+gunicorn config.wsgi:application --bind 0.0.0.0:8000
+```
+
+The Railway deployment uses environment variables for:
+
+```text
+DJANGO_SECRET_KEY
+DJANGO_DEBUG
+DJANGO_ALLOWED_HOSTS
+DJANGO_CSRF_TRUSTED_ORIGINS
+DB_NAME
+DB_USER
+DB_PASSWORD
+DB_HOST
+DB_PORT
+```
+
+Database credentials are provided through Railway service references and are not committed to the repository.
+
+The production domain is:
+
+```text
+https://manufacturing-operations-platform-production.up.railway.app
+```
+
+The deployed PostgreSQL database has been verified using the synthetic MVP demonstration dataset.
+
+Live deployment verification confirmed:
+
+```text
+Production Supervisor login
+Work Orders
+Production Runs
+Production Run detail
+Production Entries
+Downtime Events
+Quality Inspections
+Quality Specialist role controls
+System Administrator Audit Events
+```
 
 ## Database Migrations
 
@@ -756,7 +855,7 @@ docs/screenshots/
 The MVP can be demonstrated using the following sequence:
 
 1. Sign in as a Production Supervisor.
-2. Create a Work Order.
+2. Review or create a Work Order.
 3. Create a Production Run.
 4. Start the Production Run using an authorised lifecycle role.
 5. Record production output using an authorised operational role.
@@ -767,6 +866,7 @@ The MVP can be demonstrated using the following sequence:
 10. View updated dashboard metrics.
 11. Review AuditEvent history where authorised.
 12. Show the passing GitHub Actions CI workflow.
+13. Show the deployed Railway environment.
 
 The demonstration must follow the implemented permission model.
 
@@ -802,37 +902,29 @@ The current MVP does not implement:
 
 These are future roadmap concepts, not current ForgeOps capabilities.
 
-## Deployment
-
-Public deployment is part of FO-026 MVP release preparation.
-
-The final deployed environment must:
-
-- use PostgreSQL
-- contain synthetic data only
-- preserve authentication
-- preserve role-based permissions
-- avoid committed secrets
-- clearly identify ForgeOps as an educational demonstration system
-
-The deployment URL will be added after final deployment verification.
-
 ## Release Status
 
-ForgeOps is currently in final MVP release preparation under:
+ForgeOps has reached the FO-026 MVP release stage.
+
+Completed release preparation includes:
 
 ```text
-FO-026: Prepare the MVP Release
+architecture documentation
+ER diagram
+production workflow documentation
+README documentation
+synthetic demonstration dataset
+portfolio screenshots
+Docker development environment
+330-test regression suite
+GitHub Actions CI
+Railway deployment
+PostgreSQL production deployment
+live role verification
+live workflow verification
 ```
 
-A versioned GitHub release will be created after:
-
-- final documentation review
-- screenshot preparation
-- deployment verification
-- complete workflow demonstration
-- final regression verification
-- successful GitHub Actions verification
+The remaining release tasks are limited to final regression verification, pull request merge, and creation of the versioned GitHub MVP release.
 
 ## License
 
@@ -848,9 +940,9 @@ LICENSE
 
 ForgeOps is an educational portfolio project.
 
-It is not a validated manufacturing execution system, regulated production system or employer system.
+It is not a validated manufacturing execution system, regulated production system, or employer system.
 
-No real manufacturing, employer or customer data should be stored in the project.
+No real manufacturing, employer, or customer data should be stored in the project.
 
 These behaviours remain reserved for future roadmap issues that explicitly define them.
 
